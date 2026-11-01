@@ -63,3 +63,16 @@
   - collect.py: "리소스 종류가 없음"은 모든 kind에서 경고 없이 건너뜀. 그 밖의 실패는 기존처럼 경고.
   - 사용자 검토로 수정: "리소스 종류 없음"을 넘기는 것은 OPTIONAL kind(targetgroupbindings)로 한정. 기본 리소스가 없다고 나오면 경고 — 점검을 못 했는데 문제없음처럼 보이면 안 되기 때문(사용자 지적). 테스트 `test_missing_core_kind_still_warns` 추가.
 - **수정 파일**: `preflight/checks.py`, `preflight/report.py`, `preflight/collect.py`, `tests/test_checks.py`, `tests/test_cli.py`, `tests/test_collect.py`(신규), `tests/fixtures/snapshot/{deployments,services,ingresses,targetgroupbindings}.json`, `demo/planted-issues.yaml`, `demo/run-demo.sh`, `README.md`, `00-context.md`, `aidlc-state.md`
+- **검증**: pytest 33개 통과. kind 데모(`kind-preflight-demo`)에서 storefront-web·storefront-nlb·zone-spread가 MEDIUM으로 검출되고, ip 모드 order-api는 나오지 않음. TargetGroupBinding CRD가 없어도 경고 없음.
+
+---
+
+## 2026-11-02 — Unit 1 백로그 2번(drain 검증) 계획 작성
+
+- **사용자 입력**: "Unit 1 백로그 2번(drain 검증) 구현 계획을 제안해 줘. 코드는 아직 쓰지 마. 계획은 aidlc-docs/plans/unit1-02-drain.md 파일로도 남겨 줘."
+- **AI 판단**:
+  - 직접 eviction 루프, 별도 멀티 노드 kind 클러스터, 단독 Pod에 `--force` 사용 안 함, 항상 uncordon을 추천안으로 제시. 사용자 결정은 계획 파일의 `[결정]:` 칸으로 받음.
+  - 데모·테스트·픽스처에 실제 환경 이름으로 보이는 노드그룹 값이 남아 있어, 일반 값으로 바꿀지 결정 항목에 추가.
+- **사용자 지시**: "audit.md에 실제 이름으로 보이는 값(노드그룹 이름 등)을 그대로 적지 마. \"실제 환경 이름으로 보이는 노드그룹 값\"처럼 이름 없이 써 줘. 앞으로 모든 문서와 커밋 메시지에서도 같은 규칙을 지켜 줘. 이 규칙을 CLAUDE.md 작업 규칙에도 추가해 줘."
+  - 반영: 계획 파일에서 해당 값을 지우고 이름 없이 설명. `CLAUDE.md` 작업 규칙에 추가.
+- **생성·수정 파일**: `plans/unit1-02-drain.md`(신규), `aidlc-state.md`, `CLAUDE.md`

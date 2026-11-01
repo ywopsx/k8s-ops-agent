@@ -82,3 +82,4 @@ AI-DLC 방식(Inception → Construction → Operations)으로 진행하고, AI�
 
 - Unit 2의 동기: 실제 운영에서 알림 1차 분석을 어떻게 했는지 정리해서 채운다 (질문지 Q13).
 - 관측 스택 메모리 기준: 노트북 RAM 8GB에서 kind + Prometheus·Alertmanager·Grafana·Loki에 얼마까지 쓸지, 무엇을 줄이거나 뺄지 (질문지 Q12).
+- 공개 전 git 기록에서 실제 환경 이름 제거: 첫 커밋에 실제 환경 이름으로 보이는 노드그룹 값이 남아 있다. 작업 트리에서는 일반 값으로 바꿨지만 기록에는 남으므로, 레포를 공개하기 전에 기록 정리(history rewrite) 여부와 방법을 정한다.
