@@ -1,0 +1,26 @@
+{
+  "apiVersion": "v1",
+  "kind": "List",
+  "items": [
+    {
+      "metadata": {
+        "name": "ip-10-0-1-10"
+      },
+      "status": {
+        "nodeInfo": {
+          "osImage": "Amazon Linux 2"
+        }
+      }
+    },
+    {
+      "metadata": {
+        "name": "ip-10-0-1-11"
+      },
+      "status": {
+        "nodeInfo": {
+          "osImage": "Amazon Linux 2023.6.20250115"
+        }
+      }
+    }
+  ]
+}

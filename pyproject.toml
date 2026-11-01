@@ -1,0 +1,15 @@
+[project]
+name = "k8s-ops-agent"
+version = "0.1.0"
+description = "EKS 클러스터 운영 에이전트: 노드 교체 사전 점검과 알림 1차 분석"
+requires-python = ">=3.10"
+dependencies = []
+
+[project.optional-dependencies]
+dev = ["pytest>=8"]
+
+[project.scripts]
+preflight = "preflight.cli:main"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

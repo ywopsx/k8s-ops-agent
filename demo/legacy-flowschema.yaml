@@ -1,0 +1,22 @@
+# 옛 API(v1beta3)로 apply했던 흔적을 재현한다.
+# 지금 클러스터에는 v1로 만들고, last-applied 어노테이션은 run-demo.sh에서 patch로 넣는다.
+# (kubectl create/apply는 어노테이션이 있으면 현재 매니페스트 내용으로 다시 써 버린다.)
+apiVersion: flowcontrol.apiserver.k8s.io/v1
+kind: FlowSchema
+metadata:
+  name: preflight-demo-legacy
+spec:
+  priorityLevelConfiguration:
+    name: workload-low
+  matchingPrecedence: 9000
+  rules:
+    - subjects:
+        - kind: ServiceAccount
+          serviceAccount:
+            name: default
+            namespace: preflight-demo
+      resourceRules:
+        - verbs: ["get"]
+          apiGroups: [""]
+          resources: ["configmaps"]
+          namespaces: ["preflight-demo"]

@@ -1,0 +1,10 @@
+__pycache__/
+*.pyc
+.pytest_cache/
+.venv/
+out/
+# 클러스터 접속 정보와 비밀 정보는 절대 커밋하지 않는다
+kubeconfig*
+*.kubeconfig
+.env
+*.pem
