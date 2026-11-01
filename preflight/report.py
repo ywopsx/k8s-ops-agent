@@ -14,6 +14,8 @@ CHECK_TITLES = {
     "removed-api": "대상 버전에서 제거된 API",
     "al2-node": "대상 버전에서 쓸 수 없는 AL2 노드",
     "vpc-cni-env": "VPC CNI(aws-node) 설정",
+    "lb-target-instance": "instance 타입 로드밸런서 대상",
+    "topology-spread": "AZ 분산 제약",
 }
 
 

@@ -39,3 +39,27 @@
 - **사용자 검토**: "승인. 단, 질문지의 "이미 정해진 것" 중 입력 항목을 "Alertmanager가 에이전트 webhook을 호출한다 (Slack 게시 방식은 Q7에서 정한다)"로 고치고, 00-context.md의 같은 내용도 맞춰 줘."
   - 반영: Alertmanager가 Slack에 직접 게시하는지는 정해지지 않은 것으로 보고, 질문지와 `00-context.md`의 입력 항목을 webhook 호출만으로 고침.
 - **수정 파일**: `CLAUDE.md`, `00-context.md`, `aidlc-state.md`, `audit.md`, `inception/requirements/requirement-verification-questions.md`
+
+---
+
+## 2026-11-02T02:25:45+09:00 — Unit 1 백로그 1번 구현 (lb-target-instance, topology-spread)
+
+- **사용자 입력**:
+
+  > 1. lb-target-instance는 MEDIUM으로 하고, 00-context.md의 전제 문장을 네 설명대로 고쳐 줘.
+  >    나도 AWS Load Balancer Controller 문서에서 instance 모드가 ASG가 아니라 클러스터 노드(Node 라벨로 선택)를 등록한다는 걸 확인했어.
+  >    구현 전에 현재 Karpenter 공식 문서도 확인해 줘.
+  > 2. topology-spread는 DoNotSchedule은 MEDIUM, ScheduleAnyway는 INFO로 한다.
+  > 3. TargetGroupBinding도 포함한다. collect.py에서는 "리소스 종류가 없음"일 때만 경고 없이 넘어가고, 권한 오류 같은 다른 실패는 지금처럼 경고를 낸다. 이 두 경우를 구분하는 테스트도 넣어 줘.
+  > 4. 데모에서는 kind 노드에 topology.kubernetes.io/zone 라벨을 붙여서, zone 제약 Deployment가 Pending이 아니라 정상으로 뜬 상태에서 검출되게 해 줘.
+  > 5. AI_USAGE.md 기록은 초안만 보여 줘. 내가 확인하고 직접 넣을게.
+  >
+  > 이대로 구현해 줘. 끝나면 pytest 결과와 바뀐 파일 목록을 보여 주고, run-demo.sh는 내가 직접 돌릴게.
+
+- **AI 판단**:
+  - lb-target-instance의 원래 전제("Karpenter 노드는 ASG에 속하지 않아 instance 타입을 쓸 수 없다")가 정확하지 않다고 보고 제안함. 사용자가 LBC 문서로 확인한 뒤 MEDIUM으로 결정.
+  - Karpenter 공식 문서 확인: 현재 FAQ(v1.15)와 EKS Best Practices의 Karpenter 장에는 LB target type 언급이 없음. IP 모드 권장은 예전 Karpenter FAQ(v0.13 등)와 EKS Load Balancing 모범 사례에 있음. 현재 FAQ는 AZ 분산에 minDomains를 권장 → topology-spread 조치 문구에 반영.
+  - 계획에 없던 추가: `ingressclasses`를 수집해 이름이 alb가 아닌 LBC IngressClass와 기본 IngressClass도 판정. 지역 키는 `failure-domain.beta.kubernetes.io/zone`도 인정. `whenUnsatisfiable`이 없으면 기본값 DoNotSchedule로 판정.
+  - collect.py: "리소스 종류가 없음"은 모든 kind에서 경고 없이 건너뜀. 그 밖의 실패는 기존처럼 경고.
+  - 사용자 검토로 수정: "리소스 종류 없음"을 넘기는 것은 OPTIONAL kind(targetgroupbindings)로 한정. 기본 리소스가 없다고 나오면 경고 — 점검을 못 했는데 문제없음처럼 보이면 안 되기 때문(사용자 지적). 테스트 `test_missing_core_kind_still_warns` 추가.
+- **수정 파일**: `preflight/checks.py`, `preflight/report.py`, `preflight/collect.py`, `tests/test_checks.py`, `tests/test_cli.py`, `tests/test_collect.py`(신규), `tests/fixtures/snapshot/{deployments,services,ingresses,targetgroupbindings}.json`, `demo/planted-issues.yaml`, `demo/run-demo.sh`, `README.md`, `00-context.md`, `aidlc-state.md`

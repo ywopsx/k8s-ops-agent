@@ -34,5 +34,5 @@
 
 ## 현재 할 일
 
-1. Unit 1 백로그 1번(lb-target-instance, topology-spread) 구현 계획 제안 → 승인 후 구현
+1. Unit 1 백로그 1번(lb-target-instance, topology-spread) 구현 완료 → (사용자) `./demo/run-demo.sh`로 확인, `docs/AI_USAGE.md` 기록
 2. (사용자) `inception/requirements/requirement-verification-questions.md`의 `[Answer]:` 칸을 채운다.

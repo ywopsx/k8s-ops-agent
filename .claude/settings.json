@@ -10,7 +10,8 @@
     "ask": [
       "Bash(git push *)",
       "Bash(kubectl delete *)",
-      "Bash(kind delete *)"
+      "Bash(kind delete *)",
+      "Bash(./demo/run-demo.sh)"
     ],
     "deny": [
       "Read(./.env)",

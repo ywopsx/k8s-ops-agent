@@ -34,6 +34,8 @@ Kubernetes(EKS) 클러스터를 업그레이드하기 전에, **업그레이드�
 | `vpc-cni-env` | HIGH / INFO | aws-node 환경변수가 기준값과 다른 경우, 그리고 현재 값 스냅샷 |
 | `unmanaged-pod` | MEDIUM | 컨트롤러 없이 떠 있는 Pod (노드 교체 시 사라짐) |
 | `single-replica` | MEDIUM | replica 1개 Deployment·StatefulSet (노드 교체 중 다운타임) |
+| `lb-target-instance` | MEDIUM | target type이 instance인 ALB Ingress·NLB Service·TargetGroupBinding, in-tree CLB/NLB (Karpenter 전환 준비) |
+| `topology-spread` | MEDIUM / INFO | AZ 분산 제약이 걸린 Deployment·StatefulSet. DoNotSchedule·필수 podAntiAffinity는 MEDIUM, ScheduleAnyway는 INFO |
 
 ## 설계 원칙
 
@@ -93,6 +95,11 @@ python3 -m pytest -q
 | `payment` + PDB `minAvailable: 1`, replica 1 | `pdb-blocks-drain` HIGH, `single-replica` MEDIUM |
 | `debug-shell`: 단독 Pod | `unmanaged-pod` MEDIUM |
 | `preflight-demo-legacy`: v1beta3로 apply한 흔적 | `removed-api` HIGH |
+| `storefront-web`: ALB Ingress, target-type 미지정 | `lb-target-instance` MEDIUM |
+| `storefront-nlb`: NLB Service, target type 미지정 | `lb-target-instance` MEDIUM |
+| `zone-spread`: AZ 키 DoNotSchedule (노드에 zone 라벨을 붙여 정상 실행) | `topology-spread` MEDIUM |
+
+ip 모드 NLB Service `order-api`는 나오지 않아야 합니다. kind에는 AWS Load Balancer Controller가 없어 Ingress와 LoadBalancer Service는 실제 로드밸런서 없이 남지만, 점검은 spec과 어노테이션만 봅니다. TargetGroupBinding은 CRD가 없어 kind에서는 조회되지 않으므로 `tests/fixtures/snapshot`으로 검증합니다. TargetGroupBinding처럼 설치되지 않을 수 있는 CRD만 리소스 종류가 없을 때 경고 없이 건너뜁니다. 기본 리소스(pods, nodes 등)를 조회하지 못하면 항상 경고합니다.
 
 kind에는 AL2 노드와 aws-node가 없어서, `al2-node`와 `vpc-cni-env`는 `tests/fixtures/snapshot`으로 검증합니다. kind 기본 컴포넌트(예: `local-path-storage`의 provisioner)도 replica 1개로 나올 수 있는데, 이는 정상적인 결과입니다.
 
@@ -100,6 +107,7 @@ kind에는 AL2 노드와 aws-node가 없어서, `al2-node`와 `vpc-cni-env`는 `
 
 - **제거된 API 점검은 `kubectl apply` 이력에 의존합니다.** API 서버는 저장된 객체를 지원하는 버전으로 바꿔 돌려주기 때문에, `last-applied-configuration` 어노테이션이 없는 리소스(Helm으로 배포한 리소스 등)는 찾지 못합니다. 다음 단계로 `helm get manifest` 결과를 함께 점검할 계획입니다.
 - **EKS add-on 호환성**(coredns, kube-proxy, vpc-cni의 대상 버전 지원 여부)은 AWS API(`aws eks describe-addon-versions`) 연동이 필요해 다음 단계로 남겨 두었습니다.
+- **instance 모드 대상 그룹이 ASG에 직접 붙어 있는지는 알 수 없습니다.** 클러스터 밖(Terraform 등)에서 대상 그룹을 ASG에 붙인 경우 Karpenter 노드는 등록되지 않지만, 이는 AWS API로만 확인할 수 있습니다. 또 IngressClassParams나 Service 쪽 어노테이션으로 target type을 정한 경우는 반영하지 않습니다.
 - **제거된 API 표**(`preflight/removed_apis.py`)는 새 버전이 나올 때마다 갱신해야 합니다.
 
 ## AI 활용

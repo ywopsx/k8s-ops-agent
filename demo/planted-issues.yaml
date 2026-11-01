@@ -84,3 +84,80 @@ spec:
   containers:
     - name: shell
       image: registry.k8s.io/pause:3.10
+---
+# [문제] ALB Ingress, target-type 어노테이션 없음 → 기본값 instance
+# kind에는 AWS Load Balancer Controller가 없어 실제 ALB는 생기지 않는다. 점검은 spec·어노테이션만 본다.
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: storefront-web
+  namespace: preflight-demo
+spec:
+  ingressClassName: alb
+  rules:
+    - http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: order-api
+                port:
+                  number: 80
+---
+# [문제] LBC NLB Service, target type 미지정 → 기본값 instance
+# kind에서는 EXTERNAL-IP가 <pending>으로 남는다.
+apiVersion: v1
+kind: Service
+metadata:
+  name: storefront-nlb
+  namespace: preflight-demo
+  annotations:
+    service.beta.kubernetes.io/aws-load-balancer-type: external
+spec:
+  type: LoadBalancer
+  selector: {app: order-api}
+  ports:
+    - port: 80
+      targetPort: 8080
+---
+# [정상] ip 모드 NLB Service → 나오지 않아야 한다
+apiVersion: v1
+kind: Service
+metadata:
+  name: order-api
+  namespace: preflight-demo
+  annotations:
+    service.beta.kubernetes.io/aws-load-balancer-type: external
+    service.beta.kubernetes.io/aws-load-balancer-nlb-target-type: ip
+spec:
+  type: LoadBalancer
+  selector: {app: order-api}
+  ports:
+    - port: 80
+      targetPort: 8080
+---
+# [문제] AZ 분산 강제(DoNotSchedule)
+# run-demo.sh가 kind 노드에 topology.kubernetes.io/zone 라벨을 붙여 두므로 정상적으로 뜬 상태에서 검출된다.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: zone-spread
+  namespace: preflight-demo
+spec:
+  replicas: 2
+  selector:
+    matchLabels: {app: zone-spread}
+  template:
+    metadata:
+      labels: {app: zone-spread}
+    spec:
+      topologySpreadConstraints:
+        - maxSkew: 1
+          topologyKey: topology.kubernetes.io/zone
+          whenUnsatisfiable: DoNotSchedule
+          labelSelector:
+            matchLabels: {app: zone-spread}
+      containers:
+        - name: app
+          image: registry.k8s.io/pause:3.10

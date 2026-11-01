@@ -9,12 +9,24 @@ from .models import Snapshot
 
 NAMESPACED = [
     "pods", "deployments", "statefulsets", "daemonsets", "jobs", "cronjobs",
-    "poddisruptionbudgets", "ingresses", "horizontalpodautoscalers", "roles", "rolebindings",
+    "poddisruptionbudgets", "services", "ingresses", "horizontalpodautoscalers", "roles", "rolebindings",
+    "targetgroupbindings",  # AWS Load Balancer Controller CRD. 설치되지 않은 클러스터에는 없다(OPTIONAL).
 ]
 CLUSTER_SCOPED = [
     "nodes", "flowschemas", "prioritylevelconfigurations", "clusterroles", "clusterrolebindings",
-    "customresourcedefinitions",
+    "customresourcedefinitions", "ingressclasses",
 ]
+
+# 설치되지 않았을 수 있는 CRD. 이 kind만 "리소스 종류가 없음"일 때 경고 없이 건너뛴다.
+# 기본 리소스(pods, nodes 등)가 없다고 나오면 점검을 못 한 것이므로 경고해야 한다.
+OPTIONAL = {"targetgroupbindings"}
+
+# kubectl이 "리소스 종류가 없음"을 알리는 문구
+MISSING_KIND_MARKER = "the server doesn't have a resource type"
+
+
+def _is_missing_kind(stderr: str) -> bool:
+    return MISSING_KIND_MARKER in stderr
 
 
 def from_cluster(kubectl: str = "kubectl", context: str | None = None) -> Snapshot:
@@ -27,7 +39,9 @@ def from_cluster(kubectl: str = "kubectl", context: str | None = None) -> Snapsh
             cmd += ["--context", context]
         result = subprocess.run(cmd, capture_output=True, text=True)
         if result.returncode != 0:
-            # 권한이 없거나 리소스 종류가 없는 클러스터도 있으니 건너뛰고 알린다.
+            if kind in OPTIONAL and _is_missing_kind(result.stderr):
+                continue
+            # 권한 오류 등 그 밖의 실패는 건너뛰되 알린다.
             print(f"[warn] {kind} 조회 실패: {result.stderr.strip().splitlines()[-1] if result.stderr else ''}")
             continue
         snap.resources[kind] = json.loads(result.stdout).get("items", [])

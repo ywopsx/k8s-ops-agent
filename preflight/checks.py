@@ -52,7 +52,8 @@ def _kind_label(kind: str) -> str:
     return {
         "deployments": "Deployment", "statefulsets": "StatefulSet", "daemonsets": "DaemonSet",
         "jobs": "Job", "cronjobs": "CronJob", "pods": "Pod", "nodes": "Node",
-        "poddisruptionbudgets": "PodDisruptionBudget",
+        "poddisruptionbudgets": "PodDisruptionBudget", "services": "Service", "ingresses": "Ingress",
+        "targetgroupbindings": "TargetGroupBinding",
     }.get(kind, kind)
 
 
@@ -232,6 +233,145 @@ def check_vpc_cni_env(snap: Snapshot, ctx: Context) -> list[Finding]:
     return findings
 
 
+# ---------------------------------------------------------------------------
+# 8. instance 타입 로드밸런서 대상 (Karpenter 전환 준비)
+# ---------------------------------------------------------------------------
+# AWS Load Balancer Controller(LBC)가 쓰는 IngressClass 컨트롤러 이름과 어노테이션
+ALB_CONTROLLER = "ingress.k8s.aws/alb"
+ALB_TARGET_TYPE = "alb.ingress.kubernetes.io/target-type"
+NLB_TYPE = "service.beta.kubernetes.io/aws-load-balancer-type"
+NLB_TARGET_TYPE = "service.beta.kubernetes.io/aws-load-balancer-nlb-target-type"
+LBC_NLB_CLASS = "service.k8s.aws/nlb"
+
+LB_INSTANCE_MESSAGE = ("instance 모드는 Pod가 아니라 노드(NodePort)로 트래픽을 보냅니다. Karpenter가 노드를 "
+                       "통합·교체할 때 처리 중인 요청이 끊기거나, 크기가 다른 노드로 트래픽이 쏠릴 수 있습니다. "
+                       "대상 그룹을 클러스터 밖에서 ASG에 직접 붙였다면 Karpenter 노드는 아예 등록되지 않습니다"
+                       "(이 경우는 클러스터 리소스로 확인할 수 없습니다).")
+LB_INSTANCE_HINT = "Karpenter로 옮기기 전에 target type을 ip로 바꾸고, Pod readiness gate 적용을 검토하세요."
+
+
+def _alb_class_names(snap: Snapshot) -> tuple[set[str], str | None]:
+    """LBC가 처리하는 IngressClass 이름들과 기본 IngressClass 이름(LBC 것일 때만)."""
+    names, default = {"alb"}, None
+    for ic in snap.items("ingressclasses"):
+        if ic.get("spec", {}).get("controller") != ALB_CONTROLLER:
+            continue
+        name, _ = _meta(ic)
+        names.add(name)
+        if ic.get("metadata", {}).get("annotations", {}).get("ingressclass.kubernetes.io/is-default-class") == "true":
+            default = name
+    return names, default
+
+
+def check_lb_target_instance(snap: Snapshot, ctx: Context) -> list[Finding]:
+    findings = []
+
+    def add(kind: str, obj: dict, detail: str) -> None:
+        name, ns = _meta(obj)
+        findings.append(Finding(
+            check="lb-target-instance", severity=Severity.MEDIUM, kind=kind, name=name, namespace=ns,
+            message=f"{detail} {LB_INSTANCE_MESSAGE}", hint=LB_INSTANCE_HINT,
+        ))
+
+    alb_classes, default_class = _alb_class_names(snap)
+    for ing in snap.items("ingresses"):
+        _, ns = _meta(ing)
+        if _skip_ns(ns, ctx):
+            continue
+        ann = ing.get("metadata", {}).get("annotations", {})
+        cls = ing.get("spec", {}).get("ingressClassName") or ann.get("kubernetes.io/ingress.class") or default_class
+        if cls not in alb_classes:
+            continue
+        target = ann.get(ALB_TARGET_TYPE, "instance")
+        if target == "instance":
+            how = "명시돼 있습니다" if ALB_TARGET_TYPE in ann else "지정되지 않아 기본값 instance로 동작합니다"
+            add("Ingress", ing, f"ALB target-type이 {how}.")
+
+    for svc in snap.items("services"):
+        _, ns = _meta(svc)
+        spec = svc.get("spec", {})
+        if _skip_ns(ns, ctx) or spec.get("type") != "LoadBalancer":
+            continue
+        ann = svc.get("metadata", {}).get("annotations", {})
+        lb_class = spec.get("loadBalancerClass")
+        lb_type = ann.get(NLB_TYPE, "")
+        if lb_type == "nlb-ip":
+            continue  # 예전 LBC 방식의 ip 모드
+        if lb_class == LBC_NLB_CLASS or lb_type == "external":
+            target = ann.get(NLB_TARGET_TYPE, "instance")
+            if target == "instance":
+                how = "명시돼 있습니다" if NLB_TARGET_TYPE in ann else "지정되지 않아 기본값 instance로 동작합니다"
+                add("Service", svc, f"NLB target type이 {how}.")
+        elif lb_class is None:
+            add("Service", svc, f"쿠버네티스 내장 컨트롤러가 만드는 {'NLB' if lb_type == 'nlb' else 'CLB'}라 "
+                                "항상 노드를 대상으로 등록합니다.")
+        # 그 밖의 loadBalancerClass는 다른 컨트롤러가 처리하므로 판단하지 않는다.
+
+    for tgb in snap.items("targetgroupbindings"):
+        _, ns = _meta(tgb)
+        if _skip_ns(ns, ctx):
+            continue
+        # targetType이 비어 있으면 LBC가 대상 그룹 설정을 따르므로 클러스터 리소스만으로는 알 수 없다.
+        if tgb.get("spec", {}).get("targetType") == "instance":
+            add("TargetGroupBinding", tgb, "targetType이 instance입니다.")
+    return findings
+
+
+# ---------------------------------------------------------------------------
+# 9. AZ 분산 제약 (Karpenter 전환 준비)
+# ---------------------------------------------------------------------------
+ZONE_KEYS = ("topology.kubernetes.io/zone", "failure-domain.beta.kubernetes.io/zone")
+
+
+def check_topology_spread(snap: Snapshot, ctx: Context) -> list[Finding]:
+    findings = []
+    for kind in ("deployments", "statefulsets"):
+        for obj in snap.items(kind):
+            name, ns = _meta(obj)
+            if _skip_ns(ns, ctx):
+                continue
+            spec = _pod_spec(kind, obj)
+            hard, soft, no_min_domains = [], [], False
+            for c in spec.get("topologySpreadConstraints", []):
+                if c.get("topologyKey") not in ZONE_KEYS:
+                    continue
+                # whenUnsatisfiable의 기본값은 DoNotSchedule
+                mode = c.get("whenUnsatisfiable", "DoNotSchedule")
+                desc = f"topologySpreadConstraints(maxSkew={c.get('maxSkew', 1)}, {mode})"
+                if mode == "DoNotSchedule":
+                    hard.append(desc)
+                    no_min_domains |= "minDomains" not in c
+                else:
+                    soft.append(desc)
+            anti = spec.get("affinity", {}).get("podAntiAffinity", {})
+            if any(t.get("topologyKey") in ZONE_KEYS
+                   for t in anti.get("requiredDuringSchedulingIgnoredDuringExecution", [])):
+                hard.append("필수 podAntiAffinity(AZ 키)")
+            if not (hard or soft):
+                continue
+            replicas = obj.get("spec", {}).get("replicas", 1)
+            if hard:
+                hint = "Karpenter NodePool의 topology.kubernetes.io/zone 요구사항과 서브넷이 대상 AZ를 모두 포함하는지 확인하세요."
+                if no_min_domains:
+                    hint += (" minDomains가 없으면 스케줄러는 지금 노드가 있는 AZ만 기준으로 분산하므로, "
+                             "새 AZ에 노드를 늘리려면 minDomains를 함께 설정하세요.")
+                findings.append(Finding(
+                    check="topology-spread", severity=Severity.MEDIUM, kind=_kind_label(kind), name=name, namespace=ns,
+                    message=f"AZ 분산을 강제하는 제약이 있습니다: {', '.join(hard)}, replica {replicas}. "
+                            "NodePool·서브넷이 일부 AZ에만 열려 있거나 노드 교체 중 한 AZ의 노드가 비면 "
+                            "새 Pod가 Pending으로 남을 수 있습니다.",
+                    hint=hint,
+                ))
+            else:
+                findings.append(Finding(
+                    check="topology-spread", severity=Severity.INFO, kind=_kind_label(kind), name=name, namespace=ns,
+                    message=f"AZ 분산 선호 제약이 있습니다: {', '.join(soft)}, replica {replicas}. "
+                            "조건을 못 맞춰도 스케줄링은 되지만 한 AZ에 몰릴 수 있습니다.",
+                    hint="Karpenter 전환 후 Pod가 AZ별로 어떻게 배치됐는지 확인하세요.",
+                ))
+    return findings
+
+
 ALL_CHECKS: list[Callable[[Snapshot, Context], list[Finding]]] = [
     check_nodegroup_pinned,
     check_pdb_blocks_drain,
@@ -240,6 +380,8 @@ ALL_CHECKS: list[Callable[[Snapshot, Context], list[Finding]]] = [
     check_removed_apis,
     check_al2_nodes,
     check_vpc_cni_env,
+    check_lb_target_instance,
+    check_topology_spread,
 ]
 
 

@@ -33,6 +33,29 @@
           }
         }
       }
+    },
+    {
+      "metadata": {
+        "name": "checkout",
+        "namespace": "shop"
+      },
+      "spec": {
+        "replicas": 3,
+        "template": {
+          "spec": {
+            "nodeSelector": {
+              "node-role": "app"
+            },
+            "topologySpreadConstraints": [
+              {
+                "maxSkew": 1,
+                "topologyKey": "topology.kubernetes.io/zone",
+                "whenUnsatisfiable": "DoNotSchedule"
+              }
+            ]
+          }
+        }
+      }
     }
   ]
 }

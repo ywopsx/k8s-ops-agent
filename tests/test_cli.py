@@ -12,7 +12,8 @@ def test_cli_finds_planted_issues_and_fails(capsys):
     assert code == 1
     for expected in ["Deployment/shop/legacy-batch", "PodDisruptionBudget/shop/legacy-batch",
                      "Pod/shop/debug-shell", "Node/ip-10-0-1-10", "FlowSchema/custom-fs",
-                     "AWS_VPC_K8S_CNI_CUSTOM_NETWORK_CFG"]:
+                     "AWS_VPC_K8S_CNI_CUSTOM_NETWORK_CFG", "Service/shop/storefront", "Ingress/shop/storefront-web",
+                     "TargetGroupBinding/shop/legacy-tg", "Deployment/shop/checkout"]:
         assert expected in out
     assert "order-api" not in out  # 역할 라벨 + replica 3 → 문제 없음
 

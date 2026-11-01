@@ -23,8 +23,8 @@ AI-DLC 방식(Inception → Construction → Operations)으로 진행하고, AI�
 - 완료 (v0.1): nodegroup-pinned, pdb-blocks-drain, removed-api, al2-node, vpc-cni-env, unmanaged-pod, single-replica 점검. kind 데모로 검증.
 - 다음 할 일 (Unit 2보다 먼저 진행한다)
   1. Karpenter 전환 준비 점검 추가 (`preflight/`)
-     - lb-target-instance: target type이 instance인 Service·Ingress 찾기 (Karpenter 노드는 ASG에 속하지 않아 instance 타입을 쓸 수 없다)
-     - topology-spread: AZ 분산 제약이 걸린 워크로드 표시
+     - lb-target-instance (MEDIUM): target type이 instance인 Service·Ingress·TargetGroupBinding 찾기. AWS Load Balancer Controller의 instance 모드는 ASG가 아니라 클러스터 노드를 등록하므로 Karpenter 노드에서도 동작한다. 다만 노드로 트래픽을 보내므로 Karpenter의 통합·교체 때 처리 중인 요청이 끊기거나 트래픽이 쏠릴 수 있고, 대상 그룹을 클러스터 밖에서 ASG에 직접 붙였다면 Karpenter 노드는 등록되지 않는다(클러스터에서 확인 불가).
+     - topology-spread: AZ 분산 제약이 걸린 워크로드 표시 (DoNotSchedule MEDIUM, ScheduleAnyway INFO)
   2. drain 검증 (`rehearsal/`): kind에서 노드를 실제로 cordon·drain해서, 막힌 Pod와 걸린 시간을 리포트에 남긴다.
   3. 업그레이드 리허설 (`rehearsal/`): kind 1.34 클러스터에 워크로드를 올리고 1.35로 옮겨, 점검이 예측한 문제와 실제 결과를 비교한다.
   4. 조치 계획 초안 (`agent/`): 에이전트가 점검 결과(JSON)를 읽고 업그레이드 순서와 조치 계획 초안을 작성한다. 사람이 승인한 뒤 리허설한다.
@@ -76,6 +76,7 @@ AI-DLC 방식(Inception → Construction → Operations)으로 진행하고, AI�
 - 2026-10-30: kind 데모에서 removed-api 미검출 발견 → 데모 수정. 실제 운영 라벨 이름을 일반 예시로 교체
 - 2026-11-02: 레포 이름을 k8s-ops-agent로 변경, GitHub에 첫 커밋. Claude Code 규칙(CLAUDE.md)과 권한 설정 추가
 - 2026-11-02: AI-DLC Requirements Analysis 시작. 우선순위(Unit 1 먼저), 디렉터리 역할, 의존성, LLM, MCP 방식 결정. Unit 2 질문지를 이 문서와 맞게 수정
+- 2026-11-02: lb-target-instance, topology-spread 점검 추가. lb-target-instance의 전제(instance 타입 사용 불가)를 문서 확인 후 바로잡음
 
 ## 열린 질문
 
