@@ -1,0 +1,23 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(python3 -m pytest *)",
+      "Bash(.venv/bin/python -m pytest *)",
+      "Bash(kubectl get *)",
+      "Bash(kubectl config current-context)",
+      "Bash(kind get *)"
+    ],
+    "ask": [
+      "Bash(git push *)",
+      "Bash(kubectl delete *)",
+      "Bash(kind delete *)"
+    ],
+    "deny": [
+      "Read(./.env)",
+      "Read(./.env.*)",
+      "Read(~/.ssh/**)",
+      "Read(~/.kube/**)",
+      "Read(~/.aws/**)"
+    ]
+  }
+}

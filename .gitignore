@@ -8,3 +8,4 @@ kubeconfig*
 *.kubeconfig
 .env
 *.pem
+.claude/settings.local.json
