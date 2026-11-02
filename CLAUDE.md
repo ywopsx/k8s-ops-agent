@@ -28,7 +28,13 @@ python3 -m preflight --target-version 1.33 --from-dir tests/fixtures/snapshot \
 
 ./demo/run-demo.sh        # kind 클러스터(preflight-demo)에 문제를 심고 실행 → out/report.md, out/snapshot/
 kind delete cluster --name preflight-demo
+
+python3 -m rehearsal drain --node <노드> --context kind-<이름> --timeout 60   # kind 노드를 실제로 drain → out/rehearsal/<시각>/
+./demo/run-drain-demo.sh  # kind 클러스터(preflight-rehearsal, worker 2)에 문제를 심고 worker1을 drain
+kind delete cluster --name preflight-rehearsal
 ```
+
+`rehearsal/` 테스트는 `tests/rehearsal_fakes.py`의 가짜 kubectl(`FakeCluster`)과 가짜 시계(`FakeClock`)를 쓴다. 클러스터에 접속하지 않는다.
 
 `.venv/`가 있으면 그 안의 python을 쓴다. 린터·포매터 설정은 없다.
 

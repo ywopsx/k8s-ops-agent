@@ -77,6 +77,7 @@ AI-DLC 방식(Inception → Construction → Operations)으로 진행하고, AI�
 - 2026-11-02: 레포 이름을 k8s-ops-agent로 변경, GitHub에 첫 커밋. Claude Code 규칙(CLAUDE.md)과 권한 설정 추가
 - 2026-11-02: AI-DLC Requirements Analysis 시작. 우선순위(Unit 1 먼저), 디렉터리 역할, 의존성, LLM, MCP 방식 결정. Unit 2 질문지를 이 문서와 맞게 수정
 - 2026-11-02: lb-target-instance, topology-spread 점검 추가. lb-target-instance의 전제(instance 타입 사용 불가)를 문서 확인 후 바로잡음
+- 2026-11-02: 데모·테스트·픽스처의 실제 환경 이름으로 보이는 값을 일반 값으로 교체. drain 검증(`rehearsal/`) 구현, 단위 테스트 55개
 
 ## 열린 질문
 

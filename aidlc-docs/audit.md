@@ -76,3 +76,27 @@
 - **사용자 지시**: "audit.md에 실제 이름으로 보이는 값(노드그룹 이름 등)을 그대로 적지 마. \"실제 환경 이름으로 보이는 노드그룹 값\"처럼 이름 없이 써 줘. 앞으로 모든 문서와 커밋 메시지에서도 같은 규칙을 지켜 줘. 이 규칙을 CLAUDE.md 작업 규칙에도 추가해 줘."
   - 반영: 계획 파일에서 해당 값을 지우고 이름 없이 설명. `CLAUDE.md` 작업 규칙에 추가.
 - **생성·수정 파일**: `plans/unit1-02-drain.md`(신규), `aidlc-state.md`, `CLAUDE.md`
+
+---
+
+## 2026-11-02 — Unit 1 백로그 2번(drain 검증) 결정과 구현
+
+- **사용자 입력** (결정):
+
+  > 결정은 모두 추천안대로 한다.
+  > ① eviction 루프 ② drain 전용 클러스터(worker 2) ③ --force 없음 ④ 항상 uncordon ⑤ 노드그룹 값을 ng-legacy로 교체 ⑥ ask에 kubectl cordon, kubectl uncordon, kubectl create --raw, python3 -m rehearsal, ./demo/*.sh 추가
+  >
+  > 추가로 반영해 줘.
+  > - eviction이 500(한 Pod에 PDB가 여러 개)일 때도 PDB 관련 막힘으로 분류하고 테스트에 넣어 줘.
+  > - 리포트의 "PDB에 막힘" 설명에, EKS 관리형 노드그룹 업그레이드는 15분 동안 evict하지 못하면 PodEvictionFailure로 실패한다는 기준을 적어 줘. 공식 문서로 확인한 뒤 넣어 줘.
+
+- **사용자 입력** (구현 시작): "커밋했어. 계획 파일의 [결정] 칸을 채우고 drain 검증 구현을 시작해 줘. 데모(run-drain-demo.sh)는 내가 직접 돌릴게."
+- **AI 판단**:
+  - ⑤는 먼저 레포 전체를 검색해 이름을 가린 목록으로 확인받은 뒤 교체함(사용자 커밋 36ff5d5).
+  - EKS 공식 문서 확인: "Understand each phase of node updates"에 "Pod가 15분 안에 빠져나가지 않고 force 플래그가 없으면 PodEvictionFailure로 실패", 알려진 원인으로 "Aggressive PDB 또는 같은 Pod를 가리키는 PDB 여러 개"가 있음 → 리포트 문구와 출처 링크에 반영.
+  - ⑥에 더해 `.venv/bin/python -m rehearsal *`도 `ask`에 넣음(`.venv` 사용 규칙 때문에 같은 명령의 다른 경로).
+  - 계획과 달라진 점: 예측 비교를 `rehearsal/compare.py`로 분리, 결과 파일을 `out/rehearsal/<시각>/` 한 디렉터리로 모음. 계획 파일에 표시함.
+  - 설계상 판단: eviction과 대체 Pod 대기는 하나의 타임아웃을 공유. "다운타임 가능"은 evict 시점에 같은 컨트롤러의 다른 Ready Pod가 없었는지로 판단(실제 요청 실패 측정 아님). 시스템 네임스페이스는 `--include-system` 없이는 예측 비교에서 제외(preflight와 같은 기준).
+  - 데모 기대 결과에 "order-api(replica 2, PDB 없음)가 한 노드에 몰려 있으면 동시에 내려감 → 예측 못 함·발생"을 넣음. 현재 점검이 놓치는 경우라 다음 점검 후보가 될 수 있음.
+- **생성·수정 파일**: `rehearsal/`(신규: `__init__.py`, `__main__.py`, `cli.py`, `guard.py`, `kube.py`, `drain.py`, `compare.py`, `report.py`, `kind-config.yaml`), `demo/run-drain-demo.sh`(신규), `tests/rehearsal_fakes.py`·`test_rehearsal_drain.py`·`test_rehearsal_report.py`(신규), `.claude/settings.json`, `README.md`, `CLAUDE.md`, `plans/unit1-02-drain.md`, `00-context.md`, `aidlc-state.md`
+- **검증**: pytest 55개 통과. kind 데모는 사용자가 실행 예정.

@@ -35,5 +35,5 @@
 ## 현재 할 일
 
 1. [x] Unit 1 백로그 1번(lb-target-instance, topology-spread) 구현 완료, kind 데모 확인 완료, `docs/AI_USAGE.md` 기록 완료 (사용자)
-2. Unit 1 백로그 2번(drain 검증) 계획 승인 대기 — `plans/unit1-02-drain.md`의 `[결정]:` 칸
+2. Unit 1 백로그 2번(drain 검증) 구현 완료, 단위 테스트 통과 → (사용자) `./demo/run-drain-demo.sh`로 확인
 3. (사용자) `inception/requirements/requirement-verification-questions.md`의 `[Answer]:` 칸을 채운다.
