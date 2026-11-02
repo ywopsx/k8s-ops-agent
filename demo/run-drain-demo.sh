@@ -25,6 +25,14 @@ K=(kubectl --context "$CTX")
 
 # 문제 워크로드를 모두 worker1에 올리기 위해 worker2를 잠시 cordon한다.
 "${K[@]}" cordon "$W2"
+# 새 네임스페이스의 default ServiceAccount는 컨트롤러가 비동기로 만든다. 그 전에 단독 Pod(debug-shell)를 만들면
+# "serviceaccount "default" not found"로 거부되므로, 네임스페이스를 먼저 만들고 ServiceAccount가 생길 때까지 기다린다.
+"${K[@]}" create namespace preflight-demo --dry-run=client -o yaml | "${K[@]}" apply -f -
+for _ in $(seq 60); do
+  "${K[@]}" -n preflight-demo get serviceaccount default >/dev/null 2>&1 && break
+  sleep 1
+done
+"${K[@]}" -n preflight-demo get serviceaccount default >/dev/null
 "${K[@]}" apply -f demo/planted-issues.yaml
 echo "worker1에 Pod가 뜰 때까지 기다리는 중..."
 "${K[@]}" -n preflight-demo wait --for=condition=Available deployment/order-api deployment/payment deployment/legacy-batch --timeout=180s

@@ -11,13 +11,9 @@
       "Bash(git push *)",
       "Bash(kubectl delete *)",
       "Bash(kind delete *)",
-      "Bash(./demo/run-demo.sh)",
-      "Bash(./demo/*.sh)",
       "Bash(kubectl cordon *)",
       "Bash(kubectl uncordon *)",
-      "Bash(kubectl create --raw *)",
-      "Bash(python3 -m rehearsal *)",
-      "Bash(.venv/bin/python -m rehearsal *)"
+      "Bash(kubectl create --raw *)"
     ],
     "deny": [
       "Read(./.env)",

@@ -53,6 +53,21 @@ def test_prediction_vs_actual():
     assert rows[("Deployment/app/web", "다운타임 가능")].verdict == UNPREDICTED
 
 
+def test_colocated_replicas_turn_unpredicted_downtime_into_hit():
+    # drain 데모의 order-api: 같은 노드의 Ready Pod 2개, PDB 없음 → colocated-replicas가 예측한다
+    def ready_pod(name):
+        return {"metadata": {"name": name, "namespace": "app", "labels": {"app": "web"},
+                             "ownerReferences": [{"kind": "ReplicaSet"}]},
+                "spec": {"nodeName": "worker1"}, "status": {"conditions": [{"type": "Ready", "status": "True"}]}}
+    web = {"metadata": {"name": "web", "namespace": "app"},
+           "spec": {"replicas": 2, "selector": {"matchLabels": {"app": "web"}},
+                    "template": {"metadata": {"labels": {"app": "web"}}, "spec": {}}}}
+    snap = Snapshot({"deployments": [web], "pods": [ready_pod("web-1"), ready_pod("web-2")]})
+    rows = rows_by_key(compare(PODS, predict(snap), snap))
+    row = rows[("Deployment/app/web", "다운타임 가능")]
+    assert row.verdict == HIT and row.checks == ["colocated-replicas"]
+
+
 def test_system_namespaces_are_left_out_of_comparison_by_default():
     workloads = {r.workload for r in compare(PODS, predict(SNAP), SNAP)}
     assert "Deployment/kube-system/coredns" not in workloads

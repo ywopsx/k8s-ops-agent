@@ -82,5 +82,6 @@ kind delete cluster --name preflight-rehearsal
 - 실제 환경 이름으로 보이는 값(노드그룹 이름, 클러스터명 등)을 발견해도 문서(`aidlc-docs/`, `docs/`, README 등)와 커밋 메시지에 그 값을 그대로 옮겨 적지 않는다. "실제 환경 이름으로 보이는 노드그룹 값"처럼 이름 없이 설명하고, 위치는 파일 경로로만 가리킨다.
 - 비밀 정보(kubeconfig, 토큰, `.env`)를 읽거나 커밋하지 않는다. Anthropic API 키는 환경 변수로만 읽고, 코드·문서·테스트·픽스처에 넣지 않는다. 테스트는 API를 부르지 않도록 가짜 클라이언트를 쓴다.
 - Python은 `.venv` 가상 환경을 쓴다. 코드를 바꾸면 `python3 -m pytest -q`로 확인하고, 클러스터 동작에 영향이 있으면 `./demo/run-demo.sh` 결과도 확인한다.
+- kind 데모(`demo/*.sh`, `python3 -m rehearsal`)는 Claude가 실행해도 된다. 대신 결과는 로그와 리포트(`out/` 아래 파일)를 근거로 보여 준다. 노트북 메모리 때문에 kind 클러스터는 한 번에 하나만 띄운다.
 - 큰 변경은 먼저 계획을 제안하고, 승인을 받은 뒤 진행한다.
 - 커밋과 push는 사용자가 직접 한다.

@@ -37,6 +37,7 @@ Kubernetes(EKS) 클러스터를 업그레이드하기 전에, **업그레이드�
 | `single-replica` | MEDIUM | replica 1개 Deployment·StatefulSet (노드 교체 중 다운타임) |
 | `lb-target-instance` | MEDIUM | target type이 instance인 ALB Ingress·NLB Service·TargetGroupBinding, in-tree CLB/NLB (Karpenter 전환 준비) |
 | `topology-spread` | MEDIUM / INFO | AZ 분산 제약이 걸린 Deployment·StatefulSet. DoNotSchedule·필수 podAntiAffinity는 MEDIUM, ScheduleAnyway는 INFO |
+| `colocated-replicas` | MEDIUM | replica 2개 이상인데 Ready Pod가 모두 한 노드에 있고, 보호 효과 있는 PDB가 없는 Deployment·StatefulSet (drain 때 대체 Pod보다 먼저 모두 evict됨). `maxUnavailable`이 replica 수 이상(100% 포함)이거나 `minAvailable`이 0인 PDB는 없는 것으로 봄 |
 
 ## 설계 원칙
 
@@ -88,7 +89,7 @@ python3 -m pytest -q
 ./demo/run-demo.sh
 ```
 
-`demo/planted-issues.yaml`이 문제를 일부러 심어 둡니다. 결과에 아래 항목이 모두 나오고, 정상 워크로드(`order-api`)는 나오지 않아야 합니다.
+`demo/planted-issues.yaml`이 문제를 일부러 심어 둡니다. 결과에 아래 항목이 모두 나와야 합니다.
 
 | 심어 둔 문제 | 기대 결과 |
 | --- | --- |
@@ -98,9 +99,10 @@ python3 -m pytest -q
 | `preflight-demo-legacy`: v1beta3로 apply한 흔적 | `removed-api` HIGH |
 | `storefront-web`: ALB Ingress, target-type 미지정 | `lb-target-instance` MEDIUM |
 | `storefront-nlb`: NLB Service, target type 미지정 | `lb-target-instance` MEDIUM |
-| `zone-spread`: AZ 키 DoNotSchedule (노드에 zone 라벨을 붙여 정상 실행) | `topology-spread` MEDIUM |
+| `zone-spread`: AZ 키 DoNotSchedule (노드에 zone 라벨을 붙여 정상 실행) | `topology-spread` MEDIUM, `colocated-replicas` MEDIUM |
+| `order-api`: replica 2, PDB 없음 | `colocated-replicas` MEDIUM |
 
-ip 모드 NLB Service `order-api`는 나오지 않아야 합니다. kind에는 AWS Load Balancer Controller가 없어 Ingress와 LoadBalancer Service는 실제 로드밸런서 없이 남지만, 점검은 spec과 어노테이션만 봅니다. TargetGroupBinding은 CRD가 없어 kind에서는 조회되지 않으므로 `tests/fixtures/snapshot`으로 검증합니다. TargetGroupBinding처럼 설치되지 않을 수 있는 CRD만 리소스 종류가 없을 때 경고 없이 건너뜁니다. 기본 리소스(pods, nodes 등)를 조회하지 못하면 항상 경고합니다.
+ip 모드 NLB Service `order-api`는 나오지 않아야 합니다. kind 데모 클러스터는 노드가 하나라, replica 2개이고 PDB가 없는 `order-api`·`zone-spread` Deployment는 Pod가 모두 같은 노드에 있어 `colocated-replicas`로 나옵니다(실제로 drain하면 다운타임이 생기는 상태). kube-system의 coredns도 같은 조건이지만 시스템 네임스페이스라 `--include-system` 없이는 나오지 않습니다. kind에는 AWS Load Balancer Controller가 없어 Ingress와 LoadBalancer Service는 실제 로드밸런서 없이 남지만, 점검은 spec과 어노테이션만 봅니다. TargetGroupBinding은 CRD가 없어 kind에서는 조회되지 않으므로 `tests/fixtures/snapshot`으로 검증합니다. TargetGroupBinding처럼 설치되지 않을 수 있는 CRD만 리소스 종류가 없을 때 경고 없이 건너뜁니다. 기본 리소스(pods, nodes 등)를 조회하지 못하면 항상 경고합니다.
 
 kind에는 AL2 노드와 aws-node가 없어서, `al2-node`와 `vpc-cni-env`는 `tests/fixtures/snapshot`으로 검증합니다. kind 기본 컴포넌트(예: `local-path-storage`의 provisioner)도 replica 1개로 나올 수 있는데, 이는 정상적인 결과입니다.
 
@@ -112,7 +114,7 @@ kind에는 AL2 노드와 aws-node가 없어서, `al2-node`와 `vpc-cni-env`는 `
 python3 -m rehearsal drain --node <노드> [--context kind-...] [--timeout 120] [--keep-cordoned]
 ```
 
-1. drain 직전 리소스를 스냅샷으로 저장하고, drain 관련 점검(`pdb-blocks-drain`, `unmanaged-pod`, `nodegroup-pinned`, `topology-spread`, `single-replica`)으로 예측합니다.
+1. drain 직전 리소스를 스냅샷으로 저장하고, drain 관련 점검(`pdb-blocks-drain`, `unmanaged-pod`, `nodegroup-pinned`, `topology-spread`, `single-replica`, `colocated-replicas`)으로 예측합니다.
 2. 노드를 cordon하고, Pod마다 Eviction API를 호출합니다(`kubectl drain`과 같은 방식). PDB에 막히면(429, 또는 PDB가 여러 개라 500) 타임아웃까지 다시 시도합니다. 컨트롤러 없는 Pod는 evict하지 않습니다(`--force`에 해당하는 삭제는 하지 않음).
 3. evict된 Pod의 대체 Pod가 Ready가 되는지 기다리고, 걸린 시간과 스케줄 실패 메시지를 남깁니다.
 4. 끝나면 항상 uncordon합니다(`--keep-cordoned` 제외, Ctrl-C나 오류에도).
@@ -135,7 +137,7 @@ kind delete cluster --name preflight-rehearsal
 | `legacy-batch` (노드그룹 라벨) | 재배치 실패 — 대체 Pod Pending | `nodegroup-pinned` 예측함·발생, `single-replica` 예측함·발생 |
 | `zone-spread` (zone DoNotSchedule) | worker1의 Pod 재배치 실패 — zone-b로만 갈 수 있어 maxSkew 위반 | `topology-spread` 예측함·발생 |
 | `debug-shell` | 컨트롤러 없음 | `unmanaged-pod` 예측함·발생 |
-| `order-api` (replica 2, PDB 없음) | 재배치 완료, 두 번째 Pod는 다운타임 가능 | 예측 못 함·발생 — 두 replica가 한 노드에 몰려 있어 동시에 내려감 |
+| `order-api` (replica 2, PDB 없음) | 재배치 완료, 두 번째 Pod는 다운타임 가능 | `colocated-replicas` 예측함·발생 — 두 replica가 한 노드에 몰려 있어 대체 Pod가 뜨기 전에 모두 evict됨 |
 
 kind 시스템 Pod(coredns, local-path-provisioner 등)가 worker1에 있었다면 함께 evict되어 표에 나옵니다. 시스템 네임스페이스는 `--include-system`을 주지 않으면 예측 비교에서 빠집니다.
 
@@ -145,6 +147,7 @@ kind 시스템 Pod(coredns, local-path-provisioner 등)가 worker1에 있었다�
 - **EKS add-on 호환성**(coredns, kube-proxy, vpc-cni의 대상 버전 지원 여부)은 AWS API(`aws eks describe-addon-versions`) 연동이 필요해 다음 단계로 남겨 두었습니다.
 - **instance 모드 대상 그룹이 ASG에 직접 붙어 있는지는 알 수 없습니다.** 클러스터 밖(Terraform 등)에서 대상 그룹을 ASG에 붙인 경우 Karpenter 노드는 등록되지 않지만, 이는 AWS API로만 확인할 수 있습니다. 또 IngressClassParams나 Service 쪽 어노테이션으로 target type을 정한 경우는 반영하지 않습니다.
 - **제거된 API 표**(`preflight/removed_apis.py`)는 새 버전이 나올 때마다 갱신해야 합니다.
+- **`colocated-replicas`는 점검 시점의 Pod 배치를 봅니다.** 스케줄러가 나중에 다르게 배치할 수 있어서, 조치 문구는 PDB와 노드 분산 제약 같은 구조적인 방법을 안내합니다. Ready Pod가 같은 AZ에 몰린 경우(AZ 장애·한 AZ 노드 일괄 교체 때의 같은 문제)는 아직 보지 않습니다.
 - **drain 검증은 kind에서의 재현입니다.** 실제 EKS의 로드밸런서 대상 해제(`exclude-from-external-load-balancers`), 새 노드 기동, Karpenter 통합은 일어나지 않습니다. eviction과 대체 Pod 대기는 하나의 타임아웃 안에서 진행하므로, 타임아웃 직전에 evict된 Pod는 대체 Pod를 기다릴 시간이 짧습니다. 다운타임 가능 여부는 evict 시점의 Ready Pod 수로 판단한 것이고, 실제 요청 실패를 측정한 것은 아닙니다.
 
 ## AI 활용

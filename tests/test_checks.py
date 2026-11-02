@@ -3,9 +3,9 @@ import json
 import pytest
 
 from preflight.checks import (
-    Context, check_al2_nodes, check_lb_target_instance, check_nodegroup_pinned, check_pdb_blocks_drain,
-    check_removed_apis, check_single_replica, check_topology_spread, check_unmanaged_pods, check_vpc_cni_env,
-    run_all,
+    Context, check_al2_nodes, check_colocated_replicas, check_lb_target_instance, check_nodegroup_pinned,
+    check_pdb_blocks_drain, check_removed_apis, check_single_replica, check_topology_spread, check_unmanaged_pods,
+    check_vpc_cni_env, run_all, selector_matches,
 )
 from preflight.models import Severity, Snapshot, version_tuple
 
@@ -269,3 +269,116 @@ def test_version_parsing():
     assert version_tuple("v1.33.2") == (1, 33)
     with pytest.raises(ValueError):
         version_tuple("latest")
+
+
+# --- colocated-replicas ----------------------------------------------------
+def selected_workload(name="web", ns="app", replicas=2, kind="deployments"):
+    return {"metadata": {"name": name, "namespace": ns},
+            "spec": {"replicas": replicas, "selector": {"matchLabels": {"app": name}},
+                     "template": {"metadata": {"labels": {"app": name}}, "spec": {}}}}
+
+
+def running_pod(name, node, app="web", ns="app", ready=True):
+    return {"metadata": {"name": name, "namespace": ns, "labels": {"app": app},
+                         "ownerReferences": [{"kind": "ReplicaSet"}]},
+            "spec": {"nodeName": node},
+            "status": {"conditions": [{"type": "Ready", "status": "True" if ready else "False"}]}}
+
+
+def pdb_for(app="web", ns="app", **spec):
+    return {"metadata": {"name": f"{app}-pdb", "namespace": ns},
+            "spec": {"selector": {"matchLabels": {"app": app}}, **spec}}
+
+
+def colocated(snap):
+    return check_colocated_replicas(Snapshot(snap), CTX)
+
+
+def test_colocated_replicas_without_pdb_is_medium():
+    # drain 데모의 order-api: replica 2, PDB 없음, 두 Pod가 같은 노드 → 두 번째 Pod가 대체 Pod보다 먼저 evict됨
+    [f] = colocated({"deployments": [selected_workload()],
+                     "pods": [running_pod("web-1", "node-a"), running_pod("web-2", "node-a")]})
+    assert f.check == "colocated-replicas" and f.severity == Severity.MEDIUM and f.ref == "Deployment/app/web"
+    assert "node-a" in f.message and "PDB가 없습니다" in f.message
+
+
+def test_replicas_spread_across_nodes_are_ok():
+    assert colocated({"deployments": [selected_workload()],
+                      "pods": [running_pod("web-1", "node-a"), running_pod("web-2", "node-b")]}) == []
+
+
+def test_only_ready_pods_count():
+    # Ready Pod가 2개 미만이면 검출하지 않는다 (NotReady·Pending Pod는 세지 않음)
+    pending = running_pod("web-3", "node-a")
+    pending["spec"] = {}
+    assert colocated({"deployments": [selected_workload()],
+                      "pods": [running_pod("web-1", "node-a"), running_pod("web-2", "node-a", ready=False),
+                               pending]}) == []
+
+
+def test_single_replica_is_left_to_single_replica_check():
+    assert colocated({"deployments": [selected_workload(replicas=1)],
+                      "pods": [running_pod("web-1", "node-a")]}) == []
+
+
+def test_pods_of_other_workloads_and_namespaces_are_not_mixed():
+    assert colocated({"deployments": [selected_workload()],
+                      "pods": [running_pod("web-1", "node-a"), running_pod("api-1", "node-a", app="api"),
+                               running_pod("web-x", "node-a", ns="other")]}) == []
+
+
+@pytest.mark.parametrize("spec", [{"maxUnavailable": 1}, {"maxUnavailable": "50%"}, {"minAvailable": 1},
+                                  {"minAvailable": "50%"}])
+def test_protective_pdb_prevents_finding(spec):
+    # 두 번째 eviction이 첫 대체 Pod가 Ready가 될 때까지 막히므로 다운타임이 없다
+    assert colocated({"deployments": [selected_workload()], "poddisruptionbudgets": [pdb_for(**spec)],
+                      "pods": [running_pod("web-1", "node-a"), running_pod("web-2", "node-a")]}) == []
+
+
+@pytest.mark.parametrize("spec, shown", [({"maxUnavailable": 2}, "maxUnavailable=2"),
+                                         ({"maxUnavailable": 3}, "maxUnavailable=3"),
+                                         ({"maxUnavailable": "100%"}, "maxUnavailable=100%"),
+                                         ({"minAvailable": 0}, "minAvailable=0"),
+                                         ({"minAvailable": "0%"}, "minAvailable=0%")])
+def test_pdb_without_protection_counts_as_no_pdb(spec, shown):
+    [f] = colocated({"deployments": [selected_workload()], "poddisruptionbudgets": [pdb_for(**spec)],
+                     "pods": [running_pod("web-1", "node-a"), running_pod("web-2", "node-a")]})
+    assert f"web-pdb({shown})" in f.message
+    assert "PDB를 maxUnavailable: 1" in f.hint
+
+
+def test_one_protective_pdb_among_several_is_enough():
+    pdbs = [pdb_for(maxUnavailable="100%"), {**pdb_for(maxUnavailable=1), "metadata": {"name": "strict", "namespace": "app"}}]
+    assert colocated({"deployments": [selected_workload()], "poddisruptionbudgets": pdbs,
+                      "pods": [running_pod("web-1", "node-a"), running_pod("web-2", "node-a")]}) == []
+
+
+def test_pdb_in_other_namespace_or_for_other_app_does_not_protect():
+    pdbs = [pdb_for(ns="other", maxUnavailable=1), pdb_for(app="api", maxUnavailable=1)]
+    assert len(colocated({"deployments": [selected_workload()], "poddisruptionbudgets": pdbs,
+                          "pods": [running_pod("web-1", "node-a"), running_pod("web-2", "node-a")]})) == 1
+
+
+def test_unreadable_pdb_values_are_treated_as_protective():
+    # 해석할 수 없는 값은 추측으로 검출하지 않는다
+    assert colocated({"deployments": [selected_workload()], "poddisruptionbudgets": [pdb_for(maxUnavailable="abc")],
+                      "pods": [running_pod("web-1", "node-a"), running_pod("web-2", "node-a")]}) == []
+
+
+def test_colocated_statefulset_and_system_namespace():
+    sts = selected_workload(name="db")
+    dns = selected_workload(name="coredns", ns="kube-system")
+    snap = Snapshot({"statefulsets": [sts], "deployments": [dns],
+                     "pods": [running_pod("db-0", "node-a", app="db"), running_pod("db-1", "node-a", app="db"),
+                              running_pod("dns-1", "node-a", app="coredns", ns="kube-system"),
+                              running_pod("dns-2", "node-a", app="coredns", ns="kube-system")]})
+    assert [f.ref for f in check_colocated_replicas(snap, CTX)] == ["StatefulSet/app/db"]
+    ctx = Context(target_version="1.33", include_system=True)
+    assert sorted(f.ref for f in check_colocated_replicas(snap, ctx)) == [
+        "Deployment/kube-system/coredns", "StatefulSet/app/db"]
+
+
+def test_selector_matches_in_preflight():
+    assert selector_matches({"matchLabels": {"app": "a"}}, {"app": "a", "x": "y"})
+    assert not selector_matches({"matchExpressions": [{"key": "tier", "operator": "NotIn", "values": ["web"]}]},
+                                {"tier": "web"})

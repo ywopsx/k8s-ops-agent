@@ -61,6 +61,24 @@ def _skip_ns(ns: str | None, ctx: Context) -> bool:
     return (not ctx.include_system) and ns in SYSTEM_NAMESPACES
 
 
+def selector_matches(selector: dict, labels: dict) -> bool:
+    """LabelSelector(matchLabels, matchExpressions)가 labels와 맞는지. 빈 selector는 모두와 맞는다."""
+    for k, v in (selector.get("matchLabels") or {}).items():
+        if labels.get(k) != v:
+            return False
+    for e in selector.get("matchExpressions") or []:
+        key, op, values = e.get("key"), e.get("operator"), e.get("values") or []
+        if op == "In" and labels.get(key) not in values:
+            return False
+        if op == "NotIn" and key in labels and labels[key] in values:
+            return False
+        if op == "Exists" and key not in labels:
+            return False
+        if op == "DoesNotExist" and key in labels:
+            return False
+    return True
+
+
 # ---------------------------------------------------------------------------
 # 1. 노드그룹 이름에 묶인 스케줄링
 # ---------------------------------------------------------------------------
@@ -372,6 +390,98 @@ def check_topology_spread(snap: Snapshot, ctx: Context) -> list[Finding]:
     return findings
 
 
+# ---------------------------------------------------------------------------
+# 10. Ready Pod가 한 노드에 몰린 replica 2개 이상 워크로드
+# ---------------------------------------------------------------------------
+def _scaled(value, replicas: int) -> int | None:
+    """PDB의 정수·퍼센트 값을 Pod 수로 바꾼다. 퍼센트는 Kubernetes처럼 올림한다. 해석할 수 없으면 None."""
+    if isinstance(value, bool):
+        return None
+    if isinstance(value, int):
+        return value
+    if isinstance(value, str):
+        s = value.strip()
+        try:
+            if s.endswith("%"):
+                pct = int(s[:-1])
+                return -(-replicas * pct // 100)  # 올림
+            return int(s)
+        except ValueError:
+            return None
+    return None
+
+
+def _pdb_weakness(pdb: dict, replicas: int) -> str | None:
+    """PDB가 replica 전부를 동시에 evict하도록 허용하면 그 설정을 돌려준다. 보호 효과가 있으면 None.
+
+    값을 해석할 수 없거나 minAvailable·maxUnavailable이 모두 없는 PDB는 보호로 본다(추측으로 검출하지 않는다).
+    """
+    spec = pdb.get("spec", {})
+    if spec.get("maxUnavailable") is not None:
+        n = _scaled(spec["maxUnavailable"], replicas)
+        if n is not None and n >= replicas:
+            return f"maxUnavailable={spec['maxUnavailable']}"
+        return None
+    if spec.get("minAvailable") is not None:
+        n = _scaled(spec["minAvailable"], replicas)
+        if n == 0:
+            return f"minAvailable={spec['minAvailable']}"
+    return None
+
+
+def _is_ready(pod: dict) -> bool:
+    for c in pod.get("status", {}).get("conditions", []):
+        if c.get("type") == "Ready":
+            return c.get("status") == "True"
+    return False
+
+
+def check_colocated_replicas(snap: Snapshot, ctx: Context) -> list[Finding]:
+    findings = []
+    pods = [p for p in snap.items("pods")
+            if p.get("spec", {}).get("nodeName") and not p.get("metadata", {}).get("deletionTimestamp")
+            and _is_ready(p)]
+    pdbs = snap.items("poddisruptionbudgets")
+    for kind in ("deployments", "statefulsets"):
+        for obj in snap.items(kind):
+            name, ns = _meta(obj)
+            if _skip_ns(ns, ctx):
+                continue
+            replicas = obj.get("spec", {}).get("replicas", 1)
+            selector = obj.get("spec", {}).get("selector")
+            if replicas < 2 or not selector:
+                continue
+            ready = [p for p in pods if p.get("metadata", {}).get("namespace") == ns
+                     and selector_matches(selector, p.get("metadata", {}).get("labels") or {})]
+            nodes = {p["spec"]["nodeName"] for p in ready}
+            if len(ready) < 2 or len(nodes) != 1:
+                continue
+            # policy/v1에서 selector가 없는 PDB는 아무 Pod도 고르지 않는다.
+            matching = [b for b in pdbs if b.get("metadata", {}).get("namespace") == ns
+                        and b.get("spec", {}).get("selector") is not None
+                        and any(selector_matches(b["spec"]["selector"], p.get("metadata", {}).get("labels") or {})
+                                for p in ready)]
+            weak = [(b, _pdb_weakness(b, replicas)) for b in matching]
+            if any(w is None for _, w in weak):
+                continue  # 보호 효과가 있는 PDB가 하나라도 있으면 eviction이 하나씩 진행된다
+            [node] = nodes
+            if weak:
+                pdb_desc = ", ".join(f"{_meta(b)[0]}({w})" for b, w in weak)
+                why = f"PDB {pdb_desc}가 있지만 replica {replicas}개를 모두 동시에 evict하도록 허용합니다"
+                fix = "PDB를 maxUnavailable: 1(또는 minAvailable: 1)처럼 조정해 eviction이 하나씩 진행되게 하거나"
+            else:
+                why = "PDB가 없습니다"
+                fix = "PDB(maxUnavailable: 1 등)를 추가해 eviction이 하나씩 진행되게 하거나"
+            findings.append(Finding(
+                check="colocated-replicas", severity=Severity.MEDIUM, kind=_kind_label(kind), name=name, namespace=ns,
+                message=f"점검 시점에 Ready Pod {len(ready)}개가 모두 노드 {node}에 있고, {why}. "
+                        "이 노드를 drain하면 대체 Pod가 뜨기 전에 모두 evict되어 서비스가 잠시 끊길 수 있습니다.",
+                hint=f"{fix}, kubernetes.io/hostname 기준 topologySpreadConstraints·podAntiAffinity로 "
+                     "Pod를 여러 노드에 나누세요.",
+            ))
+    return findings
+
+
 ALL_CHECKS: list[Callable[[Snapshot, Context], list[Finding]]] = [
     check_nodegroup_pinned,
     check_pdb_blocks_drain,
@@ -382,6 +492,7 @@ ALL_CHECKS: list[Callable[[Snapshot, Context], list[Finding]]] = [
     check_vpc_cni_env,
     check_lb_target_instance,
     check_topology_spread,
+    check_colocated_replicas,
 ]
 
 

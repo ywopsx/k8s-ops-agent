@@ -124,3 +124,50 @@
   - 새 점검은 백로그 7번으로 추가(기존 번호 3~6은 그대로 둠). 추천안: 이름 `colocated-replicas`, MEDIUM, Pod와 워크로드는 selector로 연결, 노드가 하나뿐인 클러스터도 그대로 보고, 시스템 네임스페이스 기본 제외. `selector_matches`를 `rehearsal/`에서 `preflight/`로 옮기는 것을 포함(의존 방향 유지).
   - 노드가 하나인 `preflight-demo`에서는 `order-api`, `zone-spread`가 새로 검출되므로 README 기대 결과 표를 고쳐야 한다는 점을 결정 항목(④)에 적음.
 - **생성·수정 파일**: `aidlc-state.md`, `audit.md`, `00-context.md`, `plans/unit1-02-drain.md`, `plans/unit1-07-colocated-replicas.md`(신규)
+
+---
+
+## 2026-11-03T01:21:04+09:00 — 백로그 7번(colocated-replicas) 결정과 구현
+
+- **사용자 입력**:
+
+  > 백로그 7번 결정은 추천안대로 하되, ③만 보완해 줘.
+  > PDB가 있어도 maxUnavailable이 replica 수 이상이거나(100% 포함) minAvailable이 0이면 보호 효과가 없으니 "PDB 없음"과 같이 검출 대상으로 본다. 이 경우도 테스트에 넣어 줘.
+  > 같은 AZ에 몰린 경우는 이번 범위에서 빼고 백로그 후보로만 적어 줘.
+  >
+  > AI_USAGE.md 초안은 내가 확인했으니 그대로 넣어 줘.
+  >
+  > 그다음 백로그 7번을 구현해 줘. 끝나면 pytest 결과와 바뀐 파일 목록을 보여 주고, run-demo.sh 결과가 README 표와 맞는지는 내가 직접 돌려서 확인할게.
+
+- **AI 판단**:
+  - 보완한 ③의 해석: maxUnavailable 퍼센트는 Kubernetes처럼 올림해서 Pod 수로 바꾼 뒤 replica 수와 비교(`100%`, replica 2에서 `2`·`3`은 보호 효과 없음, `50%`는 1이라 보호). minAvailable은 `0`·`0%`만 보호 효과 없음으로 봄(`50%`, `1` 등은 두 번째 eviction을 막음).
+  - 사용자 지시에 없던 판단: 값을 해석할 수 없거나 minAvailable·maxUnavailable이 모두 없는 PDB는 보호로 봄(추측으로 검출하지 않음). selector가 없는 PDB는 policy/v1처럼 아무 Pod도 고르지 않는 것으로 봄. 여러 PDB 중 보호 효과 있는 것이 하나라도 있으면 검출하지 않음.
+  - Ready 판정은 `status.conditions`의 Ready=True와 `spec.nodeName`으로 하고, 삭제 중(deletionTimestamp)인 Pod는 뺌.
+  - `selector_matches`를 `rehearsal/compare.py`에서 `preflight/checks.py`로 옮기고, `rehearsal`은 `preflight`에서 import(의존 방향 유지). 기존 테스트의 import 경로는 그대로 동작.
+  - `rehearsal` 예측 비교에 colocated-replicas를 "다운타임 가능" 예측으로 추가 → drain 데모의 `order-api`는 "예측함·발생"이 될 것으로 기대(데모로는 아직 확인 안 함).
+  - 노드가 하나인 `preflight-demo`에서는 `order-api`, `zone-spread` Deployment가 새로 검출되므로 README의 run-demo 기대 결과 표와 문구("order-api는 나오지 않아야 한다")를 고침. ip 모드 Service `order-api`가 lb-target-instance에 나오지 않는다는 기대는 그대로.
+  - 확인한 docs/AI_USAGE.md 초안을 그대로 넣음.
+- **수정 파일**: `preflight/checks.py`, `preflight/report.py`, `rehearsal/compare.py`, `tests/test_checks.py`, `tests/test_rehearsal_report.py`, `README.md`, `docs/AI_USAGE.md`, `plans/unit1-07-colocated-replicas.md`, `00-context.md`, `aidlc-state.md`, `audit.md`
+- **검증**: pytest 75개 통과(새 테스트 20개). 픽스처 스냅샷 실행에서 colocated-replicas 미검출(픽스처 Pod에 nodeName 없음). kind 데모(`run-demo.sh`, `run-drain-demo.sh`)는 사용자가 실행 예정.
+
+---
+
+## 2026-11-03T01:58:00+09:00 — 작업 방식 변경, 데모 스크립트 오류 수정, 두 데모 확인
+
+- **사용자 입력**:
+
+  > 작업 방식을 바꿀게.
+  > 1. CLAUDE.md에서 "데모는 사용자가 직접 실행한다"는 규칙을 "kind 데모는 Claude가 실행해도 된다. 대신 결과는 로그와 리포트를 근거로 보여 준다"로 바꿔 줘. .claude/settings.json의 ask에서 ./demo/*.sh와 python3 -m rehearsal는 빼 줘. git push는 ask에 그대로 둔다.
+  > 2. run-demo.sh의 Forbidden 오류 원인을 찾아서 고치고, run-demo.sh와 run-drain-demo.sh를 다시 돌려서 README 기대 결과 표와 비교해 줘. 클러스터는 메모리 때문에 하나씩만 띄워.
+  > 3. 다 맞으면 문서를 갱신하고 커밋해 줘. push 직전에 멈추고, 원인과 고친 내용, 두 데모 결과 요약, git diff --stat을 보여 줘.
+
+- **AI 판단**:
+  - CLAUDE.md에는 "데모는 사용자가 직접 실행한다"는 문장이 그대로 있지 않아서(이전 대화에서 사용자가 직접 돌리겠다고 한 것이 관례였음), 작업 규칙에 새 줄로 추가함. 클러스터를 하나씩만 띄운다는 조건도 함께 적음.
+  - settings.json `ask`에서 `./demo/run-demo.sh`, `./demo/*.sh`, `python3 -m rehearsal *`와 같은 명령의 다른 경로인 `.venv/bin/python -m rehearsal *`도 뺌. `git push *`, `kind delete *`, `kubectl delete/cordon/uncordon/create --raw`는 그대로 둠.
+  - Forbidden 원인(로그 근거): `kubectl apply`가 같은 호출에서 `preflight-demo` 네임스페이스와 단독 Pod `debug-shell`을 만드는데, 새 네임스페이스의 `default` ServiceAccount는 컨트롤러가 비동기로 만든다. 그 전에 Pod 생성 요청이 들어가 `serviceaccount "default" not found`로 거부됨. Deployment Pod는 컨트롤러가 나중에 재시도해서 영향이 없었음. `set -e`로 스크립트가 그 자리에서 멈춰 preflight가 돌지 않았고, `out/report.md`는 2026-11-02 파일 그대로였음.
+  - 수정: `run-demo.sh`, `run-drain-demo.sh` 모두 네임스페이스를 먼저 만들고 `default` ServiceAccount가 생길 때까지 최대 60초 기다린 뒤 매니페스트를 적용. 같은 매니페스트를 같은 방식으로 적용하는 drain 데모도 같은 경합이 생길 수 있어서 함께 고침.
+  - 실행 순서: 남아 있던 `preflight-rehearsal` 삭제 → `run-demo.sh` → `preflight-demo` 삭제 → `run-drain-demo.sh` → `preflight-rehearsal` 삭제. 실행 전 `kubectl config current-context`와 `kind get clusters`로 확인.
+- **데모 결과**:
+  - `run-demo.sh` (종료 코드 0, 로그에 오류 줄 없음, `out/report.md` 2026-11-03 01:53:29): HIGH 3 · MEDIUM 9 · INFO 0. README 표의 9행(legacy-batch, payment, debug-shell, preflight-demo-legacy, storefront-web, storefront-nlb, zone-spread의 topology-spread·colocated-replicas, order-api의 colocated-replicas)이 모두 나옴. ip 모드 Service `order-api`는 lb-target-instance에 없음, coredns 없음, local-path-provisioner single-replica는 README가 허용한 결과.
+  - `run-drain-demo.sh` (종료 코드 0, `out/rehearsal/20261103-015605/`): 전체 61.8초(타임아웃 60초), uncordon 함. PDB에 막힘 1(429로 25회) · 재배치 실패 2 · 컨트롤러 없음 1 · evict 실패 0 · 재배치 완료 2 · 건너뜀 2. 예측 비교 7행: 예측함·발생 6, 예측함·발생 안 함 1(`payment`의 single-replica), 예측 못 함·발생 0. `order-api` 다운타임 가능은 colocated-replicas로 예측함·발생.
+- **수정 파일**: `CLAUDE.md`, `.claude/settings.json`, `demo/run-demo.sh`, `demo/run-drain-demo.sh`, `aidlc-state.md`, `00-context.md`, `audit.md`, `plans/unit1-07-colocated-replicas.md`

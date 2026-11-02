@@ -80,6 +80,8 @@ AI-DLC 방식(Inception → Construction → Operations)으로 진행하고, AI�
 - 2026-11-02: lb-target-instance, topology-spread 점검 추가. lb-target-instance의 전제(instance 타입 사용 불가)를 문서 확인 후 바로잡음
 - 2026-11-02: 데모·테스트·픽스처의 실제 환경 이름으로 보이는 값을 일반 값으로 교체. drain 검증(`rehearsal/`) 구현, 단위 테스트 55개
 - 2026-11-03: drain 데모를 kind에서 확인. 예측한 6건 모두 기대 결과와 일치, 예측 못 한 다운타임 1건(`order-api`) → 백로그 7번(replica 한 노드 몰림 점검) 계획 추가
+- 2026-11-03: colocated-replicas 점검 구현. 보호 효과 없는 PDB(maxUnavailable ≥ replica, minAvailable 0)도 PDB 없음으로 판정. 같은 AZ 몰림은 백로그 후보로 남김. 단위 테스트 75개
+- 2026-11-03: 작업 방식 변경 — kind 데모는 Claude가 실행하고 결과는 로그·리포트로 보여 준다. run-demo.sh의 ServiceAccount 경합 오류 수정 후 두 데모 모두 README 기대 결과와 일치 확인. drain 데모의 예측 못 한 문제 0건
 
 ## 열린 질문
 

@@ -16,6 +16,7 @@ CHECK_TITLES = {
     "vpc-cni-env": "VPC CNI(aws-node) 설정",
     "lb-target-instance": "instance 타입 로드밸런서 대상",
     "topology-spread": "AZ 분산 제약",
+    "colocated-replicas": "한 노드에 몰린 replica",
 }
 
 

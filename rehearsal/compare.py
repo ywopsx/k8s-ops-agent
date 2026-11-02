@@ -4,8 +4,8 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 
 from preflight.checks import (
-    SYSTEM_NAMESPACES, Context, check_nodegroup_pinned, check_pdb_blocks_drain, check_single_replica,
-    check_topology_spread, check_unmanaged_pods, run_all,
+    SYSTEM_NAMESPACES, Context, check_colocated_replicas, check_nodegroup_pinned, check_pdb_blocks_drain,
+    check_single_replica, check_topology_spread, check_unmanaged_pods, run_all, selector_matches,
 )
 from preflight.models import Finding, Severity, Snapshot
 
@@ -13,7 +13,7 @@ from .drain import BLOCKED_PDB, REPLACE_FAILED, SKIPPED, UNMANAGED, PodOutcome
 
 # drain과 관련된 점검만 돌린다. 모두 대상 버전과 무관한 점검이다.
 DRAIN_CHECKS = [check_pdb_blocks_drain, check_unmanaged_pods, check_nodegroup_pinned,
-                check_topology_spread, check_single_replica]
+                check_topology_spread, check_single_replica, check_colocated_replicas]
 _VERSION_UNUSED = "0.0"  # DRAIN_CHECKS는 대상 버전을 보지 않는다
 
 # 문제 종류
@@ -29,6 +29,7 @@ CHECK_PREDICTS = {
     "nodegroup-pinned": P_REPLACE,
     "topology-spread": P_REPLACE,
     "single-replica": P_DOWNTIME,
+    "colocated-replicas": P_DOWNTIME,
 }
 
 HIT, MISS, UNPREDICTED = "예측함·발생", "예측함·발생 안 함", "예측 못 함·발생"
@@ -49,24 +50,6 @@ def actual_problems(p: PodOutcome) -> set[str]:
     if p.downtime:
         found.add(P_DOWNTIME)
     return found
-
-
-def selector_matches(selector: dict, labels: dict) -> bool:
-    """LabelSelector(matchLabels, matchExpressions)가 labels와 맞는지. 빈 selector는 모두와 맞는다."""
-    for k, v in (selector.get("matchLabels") or {}).items():
-        if labels.get(k) != v:
-            return False
-    for e in selector.get("matchExpressions") or []:
-        key, op, values = e.get("key"), e.get("operator"), e.get("values") or []
-        if op == "In" and labels.get(key) not in values:
-            return False
-        if op == "NotIn" and key in labels and labels[key] in values:
-            return False
-        if op == "Exists" and key not in labels:
-            return False
-        if op == "DoesNotExist" and key in labels:
-            return False
-    return True
 
 
 @dataclass

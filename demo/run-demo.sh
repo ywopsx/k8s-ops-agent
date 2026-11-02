@@ -14,6 +14,15 @@ kubectl config use-context "kind-$CLUSTER"
 # kind 노드에는 AZ 라벨이 없다. zone-spread Deployment가 Pending이 아니라 정상으로 뜨도록 붙여 둔다.
 kubectl label nodes --all topology.kubernetes.io/zone=demo-zone-a --overwrite
 
+# 새 네임스페이스의 default ServiceAccount는 컨트롤러가 비동기로 만든다. 그 전에 단독 Pod(debug-shell)를 만들면
+# "serviceaccount "default" not found"로 거부되므로, 네임스페이스를 먼저 만들고 ServiceAccount가 생길 때까지 기다린다.
+kubectl create namespace preflight-demo --dry-run=client -o yaml | kubectl apply -f -
+for _ in $(seq 60); do
+  kubectl -n preflight-demo get serviceaccount default >/dev/null 2>&1 && break
+  sleep 1
+done
+kubectl -n preflight-demo get serviceaccount default >/dev/null
+
 kubectl apply -f demo/planted-issues.yaml
 kubectl create -f demo/legacy-flowschema.yaml 2>/dev/null || echo "(FlowSchema 이미 있음)"
 kubectl patch flowschema preflight-demo-legacy --type=merge -p \

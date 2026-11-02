@@ -1,6 +1,6 @@
 # Unit 1 백로그 7번 — replica 한 노드 몰림 점검 계획
 
-- **상태**: 계획, 결정 대기 (2026-11-03)
+- **상태**: 완료 — 단위 테스트 75개 통과, kind 데모 두 개(`run-demo.sh`, `run-drain-demo.sh`) 확인 (2026-11-03)
 - **작성일**: 2026-11-03
 - **위치**: `preflight/` (읽기 전용 점검, 표준 라이브러리만)
 
@@ -23,14 +23,14 @@ PDB가 하나라도 있으면(예: maxUnavailable 1) 두 번째 eviction은 첫 
 
 - 대안: `replicas-same-node`
 
-[결정]:
+[결정]: 추천안 채택 — `colocated-replicas` (2026-11-03)
 
 ### ② 심각도 — MEDIUM (추천)
 
 - 이유: 결과(잠깐의 다운타임)가 `single-replica`와 같다. drain을 멈추게 하는 `pdb-blocks-drain`(HIGH)보다는 낮다.
 - 대안: HIGH. replica를 2개로 늘려 안심하고 있던 서비스라 영향이 더 클 수 있다.
 
-[결정]:
+[결정]: 추천안 채택 — MEDIUM (2026-11-03)
 
 ### ③ 판정 조건 (추천)
 
@@ -42,10 +42,14 @@ PDB가 하나라도 있으면(예: maxUnavailable 1) 두 번째 eviction은 첫 
 4. 그 Ready Pod가 모두 같은 노드에 있음
 
 - Pod와 워크로드를 잇는 방법: 워크로드의 `spec.selector`를 Pod 라벨과 맞춘다(추천). ReplicaSet을 수집하지 않아도 되고, PDB를 고르는 방식과 같다. 대안은 `replicasets`를 수집해 ownerReferences(Pod → ReplicaSet → Deployment)를 따라가는 것인데, 수집 대상이 늘어난다.
-- PDB가 있지만 허용 중단 수가 커서(예: maxUnavailable 100%) 같은 일이 생기는 경우는 이번 범위에서 뺀다. "README 한계"에 적는다.
 - "모든 Ready Pod"가 아니라 "한 노드가 빠지면 남는 Ready Pod가 0"으로 넓히는 일반화(예: replica 3 중 3개 몰림)는 조건 4와 같다. "남는 Pod가 너무 적음"(3 중 2개 몰림)은 다운타임이 아니라 용량 문제라 이번에 넣지 않는다.
 
-[결정]:
+[결정]: 추천안 채택 + 보완 (2026-11-03)
+
+- 보완 1: PDB가 있어도 보호 효과가 없으면 "PDB 없음"과 같이 검출한다. 조건 2를 "Pod를 고르는 PDB 중 보호 효과가 있는 것이 없음"으로 바꾼다.
+  - 보호 효과 없음: `maxUnavailable`이 replica 수 이상(퍼센트는 올림해서 계산, `100%` 포함), 또는 `minAvailable`이 `0`·`0%`
+  - 그 밖의 값(`minAvailable: 1`, `maxUnavailable: 1` 등)은 두 번째 eviction을 첫 대체 Pod가 Ready가 될 때까지 막으므로 보호로 본다. 값을 해석할 수 없거나 둘 다 없는 PDB도 보호로 본다(추측으로 검출하지 않음).
+- 보완 2: Ready Pod가 같은 AZ에 몰린 경우는 이번 범위에서 뺀다. 아래 "백로그 후보"에 적는다.
 
 ### ④ 노드가 하나뿐인 클러스터 — 그대로 보고 (추천)
 
@@ -53,13 +57,13 @@ PDB가 하나라도 있으면(예: maxUnavailable 1) 두 번째 eviction은 첫 
 - 영향: `./demo/run-demo.sh` 결과에 `order-api`, `zone-spread`(둘 다 replica 2, PDB 없음)가 새로 나온다. README의 데모 기대 결과 표를 고친다.
 - 대안: 스케줄 가능한 노드가 하나면 워크로드별 Finding 대신 INFO 하나만 낸다.
 
-[결정]:
+[결정]: 추천안 채택 — 그대로 보고 (2026-11-03)
 
 ### ⑤ 시스템 네임스페이스 — `_skip_ns` 기본 제외 (추천)
 
 - coredns(replica 2)처럼 kube-system에도 해당하는 워크로드가 많다. 다른 점검처럼 `--include-system`일 때만 본다.
 
-[결정]:
+[결정]: 추천안 채택 — 기본 제외 (2026-11-03)
 
 ## 2. 조치 문구 (초안)
 
@@ -77,7 +81,7 @@ PDB가 하나라도 있으면(예: maxUnavailable 1) 두 번째 eviction은 첫 
 | `preflight/collect.py` | 변경 없음 (`pods`, `deployments`, `statefulsets`, `poddisruptionbudgets`는 이미 수집) |
 | `tests/test_checks.py` | 아래 테스트 |
 | `tests/fixtures/snapshot/` | 필요하면 `pods.json`에 몰린 Pod 예시 추가 (`test_cli.py` 기대값 확인) |
-| `README.md` | 점검 항목 표, `run-demo.sh` 기대 결과 표(④), drain 데모 표의 `order-api`를 "예측함·발생"으로, 한계(③에서 뺀 경우) |
+| `README.md` | 점검 항목 표, `run-demo.sh` 기대 결과 표(④), drain 데모 표의 `order-api`를 "예측함·발생"으로, 한계(점검 시점 배치 기준, AZ 몰림 제외) |
 
 ## 4. 테스트 (클러스터 없이)
 
@@ -86,11 +90,17 @@ PDB가 하나라도 있으면(예: maxUnavailable 1) 두 번째 eviction은 첫 
 - Ready Pod가 다른 노드에 나뉨 → 검출 안 함
 - Ready Pod 1개 + NotReady·Pending Pod 1개 → 검출 안 함 (Ready 2개 미만. 이 경우는 이미 다운타임에 가까워 별도 판단)
 - replica 1 → 검출 안 함 (`single-replica`가 다룸)
+- 보호 효과 없는 PDB → 검출: `maxUnavailable: 2`(replica 2), `maxUnavailable: "100%"`, `minAvailable: 0`
+- 보호 효과 있는 PDB → 검출 안 함: `maxUnavailable: 1`, `maxUnavailable: "50%"`(replica 2 → 1), `minAvailable: 1`
 - StatefulSet도 검출
 - kube-system은 기본 제외, `--include-system`이면 검출
 - `rehearsal` 비교: `order-api` 같은 결과가 "예측함·발생"으로 바뀌는지 (`tests/test_rehearsal_report.py`)
 
-## 5. 완료 기준
+## 5. 백로그 후보 (이번 범위 밖)
+
+- 같은 AZ 몰림: Ready Pod가 모두 같은 AZ(`topology.kubernetes.io/zone`)의 노드에 있는 워크로드. AZ 장애나 한 AZ의 노드를 한꺼번에 교체할 때 같은 문제가 생긴다. 노드 라벨로 AZ를 알아야 하고, 노드가 여러 AZ에 있는 클러스터에서만 의미가 있어서 따로 다룬다.
+
+## 6. 완료 기준
 
 - `python3 -m pytest -q` 통과
 - `./demo/run-drain-demo.sh`에서 `order-api`의 다운타임 가능이 "예측함·발생"으로 나옴
