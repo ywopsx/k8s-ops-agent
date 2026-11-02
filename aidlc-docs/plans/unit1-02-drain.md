@@ -1,6 +1,6 @@
 # Unit 1 백로그 2번 — drain 검증 구현 계획
 
-- **상태**: 승인됨, 구현 중 (2026-11-02)
+- **상태**: 완료 (구현 2026-11-02, kind 데모 확인 2026-11-03)
 - **작성일**: 2026-11-02
 - **위치**: `rehearsal/` (클러스터를 바꾸는 검증 코드, kind에서만 실행)
 
@@ -135,6 +135,8 @@ Pod를 ownerReferences(ReplicaSet → Deployment)로 따라가 워크로드 단�
    | `debug-shell` | 컨트롤러 없음 |
    | `legacy-batch` | 재배치 실패 (Pending) |
    | `order-api`, `zone-spread` | 재배치 완료 + 걸린 시간 |
+
+   > 구현 중 바뀜: worker에 zone 라벨을 붙이면서 `zone-spread`는 worker1의 Pod가 재배치 실패(maxSkew 위반)로 바뀌었고, `order-api`의 두 번째 Pod는 다운타임 가능으로 나온다. 최종 기대 결과는 README의 "drain 검증 → 데모" 표를 따른다. 2026-11-03 데모 결과는 그 표와 모두 맞았다.
 
 ## 6. 테스트 (클러스터 없이)
 

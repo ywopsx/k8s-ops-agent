@@ -30,6 +30,7 @@ AI-DLC 방식(Inception → Construction → Operations)으로 진행하고, AI�
   4. 조치 계획 초안 (`agent/`): 에이전트가 점검 결과(JSON)를 읽고 업그레이드 순서와 조치 계획 초안을 작성한다. 사람이 승인한 뒤 리허설한다.
   5. Helm으로 배포한 리소스도 점검 (helm get manifest)
   6. MCP 서버: stdio 방식으로 `run_preflight` 도구 하나만 연다. Unit 2 에이전트가 이 도구를 불러 쓴다.
+  7. replica 한 노드 몰림 점검 (`preflight/`, 가칭 colocated-replicas): replica 2개 이상, PDB 없음, Ready Pod가 모두 같은 노드인 워크로드 찾기. drain 데모에서 `order-api`가 예측 못 한 다운타임으로 나와서 추가함. 계획: `plans/unit1-07-colocated-replicas.md`
 
 ### Unit 2. 알림 1차 분석 에이전트 (예정)
 
@@ -78,6 +79,7 @@ AI-DLC 방식(Inception → Construction → Operations)으로 진행하고, AI�
 - 2026-11-02: AI-DLC Requirements Analysis 시작. 우선순위(Unit 1 먼저), 디렉터리 역할, 의존성, LLM, MCP 방식 결정. Unit 2 질문지를 이 문서와 맞게 수정
 - 2026-11-02: lb-target-instance, topology-spread 점검 추가. lb-target-instance의 전제(instance 타입 사용 불가)를 문서 확인 후 바로잡음
 - 2026-11-02: 데모·테스트·픽스처의 실제 환경 이름으로 보이는 값을 일반 값으로 교체. drain 검증(`rehearsal/`) 구현, 단위 테스트 55개
+- 2026-11-03: drain 데모를 kind에서 확인. 예측한 6건 모두 기대 결과와 일치, 예측 못 한 다운타임 1건(`order-api`) → 백로그 7번(replica 한 노드 몰림 점검) 계획 추가
 
 ## 열린 질문
 

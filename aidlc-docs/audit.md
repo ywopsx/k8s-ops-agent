@@ -100,3 +100,27 @@
   - 데모 기대 결과에 "order-api(replica 2, PDB 없음)가 한 노드에 몰려 있으면 동시에 내려감 → 예측 못 함·발생"을 넣음. 현재 점검이 놓치는 경우라 다음 점검 후보가 될 수 있음.
 - **생성·수정 파일**: `rehearsal/`(신규: `__init__.py`, `__main__.py`, `cli.py`, `guard.py`, `kube.py`, `drain.py`, `compare.py`, `report.py`, `kind-config.yaml`), `demo/run-drain-demo.sh`(신규), `tests/rehearsal_fakes.py`·`test_rehearsal_drain.py`·`test_rehearsal_report.py`(신규), `.claude/settings.json`, `README.md`, `CLAUDE.md`, `plans/unit1-02-drain.md`, `00-context.md`, `aidlc-state.md`
 - **검증**: pytest 55개 통과. kind 데모는 사용자가 실행 예정.
+
+---
+
+## 2026-11-03T00:41:25+09:00 — drain 데모 결과 기록, 백로그 7번(replica 한 노드 몰림 점검) 계획
+
+- **사용자 입력** (커밋 요청): "이번만 네가 커밋해 줘. 먼저 git status와 git diff --stat을 보여 주고, out/이나 .env가 없으면 아래 메시지로 커밋해 줘. \"Unit 1 백로그 2번: drain 검증(rehearsal) 추가 - kind 데모로 검증, 예측 6건 일치, 예측 못 한 다운타임 1건(order-api) 발견\" push는 내가 승인할게."
+  - 반영: `out/`·`.env`가 없음을 확인하고 커밋 a0e29ea 생성. push는 하지 않음.
+- **사용자 입력** (문서 갱신):
+
+  > 데모는 내가 다른 터미널에서 돌렸고, 기대 결과와 모두 맞았어. 리포트는 out/rehearsal/20261103-000339/에 있으니 직접 읽고 그 수치를 그대로 써 줘.
+  > aidlc-state.md와 audit.md를 데모 결과로 갱신해 줘. AI_USAGE.md에는 넣지 말고, 넣을 내용만 초안으로 보여 줘.
+  > 그리고 order-api처럼 "replica 2개 이상, PDB 없음, Ready Pod가 모두 같은 노드"인 경우를 잡는 점검을 백로그에 추가해 줘. 계획만, 코드는 아직 쓰지 마.
+  > 문서 갱신은 커밋 하나로 따로 만들어 주고, 그다음 push해 줘. push는 내가 승인할게.
+
+- **데모 결과** (`out/rehearsal/20261103-000339/drain-preflight-rehearsal-worker.{md,json}`에서 그대로 옮김):
+  - 컨텍스트 `kind-preflight-rehearsal`, 노드 `preflight-rehearsal-worker`, 시작 2026-11-03T00:03:39, 전체 61.8초, 타임아웃 60초, uncordon 함
+  - PDB에 막힘 1(`payment`, 429로 21회 시도) · 재배치 실패 2(`legacy-batch` evict 2.3초, `zone-spread` evict 3.4초) · 컨트롤러 없음 1(`debug-shell`) · evict 실패 0 · 재배치 완료 2(`order-api` 2개) · 건너뜀 2(DaemonSet)
+  - 예측 비교 7행: 예측함·발생 5, 예측함·발생 안 함 1(`payment`의 `single-replica` — evict되지 않았으므로, README 기대대로), 예측 못 함·발생 1(`order-api` 다운타임 가능)
+  - `order-api`: 두 Pod가 2.6초·2.8초에 evict, 대체 Pod Ready까지 6.5초·6.2초. 두 번째 Pod evict 시점에 다른 Ready Pod가 없었음
+- **AI 판단**:
+  - README의 데모 기대 결과 표와 리포트가 모두 맞는 것을 확인. 다만 `plans/unit1-02-drain.md` 5장 표는 구현 중 바뀐 내용(`zone-spread` 재배치 실패, `order-api` 다운타임 가능)이 반영되지 않았음 → 상태를 완료로 바꾸고 README 표를 따른다고 표시함.
+  - 새 점검은 백로그 7번으로 추가(기존 번호 3~6은 그대로 둠). 추천안: 이름 `colocated-replicas`, MEDIUM, Pod와 워크로드는 selector로 연결, 노드가 하나뿐인 클러스터도 그대로 보고, 시스템 네임스페이스 기본 제외. `selector_matches`를 `rehearsal/`에서 `preflight/`로 옮기는 것을 포함(의존 방향 유지).
+  - 노드가 하나인 `preflight-demo`에서는 `order-api`, `zone-spread`가 새로 검출되므로 README 기대 결과 표를 고쳐야 한다는 점을 결정 항목(④)에 적음.
+- **생성·수정 파일**: `aidlc-state.md`, `audit.md`, `00-context.md`, `plans/unit1-02-drain.md`, `plans/unit1-07-colocated-replicas.md`(신규)
