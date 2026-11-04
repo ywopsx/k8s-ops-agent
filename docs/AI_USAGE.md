@@ -25,6 +25,7 @@
 | 2026-11-03 | drain 데모에서 order-api(replica 2, PDB 없음)의 두 번째 Pod가 "다운타임 가능"으로 나왔지만 preflight는 예측하지 못함. 두 Pod가 같은 노드에 있었고 PDB가 없어, 두 번째 Pod가 첫 대체 Pod Ready(6.5초)보다 먼저(2.8초) evict됨 | kind에서 실제로 drain한 리포트의 예측·실측 비교 표(out/rehearsal/20261103-000339/) | "replica 2개 이상, PDB 없음, Ready Pod가 모두 같은 노드"를 잡는 점검을 백로그 7번으로 계획 |
 | 2026-11-03 | drain 계획 문서의 기대 결과 표가 구현 중 바뀐 결과(zone-spread 재배치 실패, order-api 다운타임)를 반영하지 못함. README 표는 맞았음 | 데모 리포트를 계획 문서·README 표와 각각 대조 | 계획 문서에 바뀐 점과 README 표가 기준이라는 것을 표시 |
 | 2026-11-03 | 새로 만든 kind 클러스터에서 run-demo.sh가 debug-shell 생성 중 Forbidden(default ServiceAccount 없음)으로 멈췄는데, 기존 out/report.md가 남아 있어 결과가 나온 것처럼 보임 | 리포트 수정 시각(11-02)과 로그 마지막 줄을 대조 | 네임스페이스와 ServiceAccount를 먼저 만들도록 두 데모 스크립트 수정, 데모 결과는 로그·리포트 시각을 함께 확인 |
+| 2026-11-04 | 첫 에이전트 데모에서 CrashLoopBackOff(설정 오류) 시나리오가 로그를 보지 않고 정답을 냄. 근거가 Pod spec의 command에 적힌 에러 문구였음 | 리포트의 근거 칸과 조회 기록(LLM 선택 0회)을 대조 | 스크립트를 ConfigMap으로 옮겨 command에 문구가 보이지 않게 하고 다시 평가. 이후 근거가 pods_log로 바뀜 |
 
 ## AI 결과를 그대로 믿지 않은 부분
 
