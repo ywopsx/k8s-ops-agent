@@ -1,0 +1,42 @@
+{
+  "version": "4",
+  "groupKey": "{}:{alertname=\"KubePodNotReady\"}",
+  "truncatedAlerts": 0,
+  "status": "firing",
+  "receiver": "ops-agent",
+  "groupLabels": {
+    "alertname": "KubePodNotReady"
+  },
+  "commonLabels": {
+    "alertname": "KubePodNotReady",
+    "severity": "warning",
+    "namespace": "shop",
+    "pod": "__POD__",
+    "job": "kube-state-metrics"
+  },
+  "commonAnnotations": {
+    "summary": "Pod가 15분 넘게 Ready가 아닙니다.",
+    "description": "Pod shop/__POD__ 가 15분 넘게 Ready 상태가 아닙니다."
+  },
+  "externalURL": "http://alertmanager.example",
+  "alerts": [
+    {
+      "status": "firing",
+      "labels": {
+        "alertname": "KubePodNotReady",
+        "severity": "warning",
+        "namespace": "shop",
+        "pod": "__POD__",
+        "job": "kube-state-metrics"
+      },
+      "annotations": {
+        "summary": "Pod가 15분 넘게 Ready가 아닙니다.",
+        "description": "Pod shop/__POD__ 가 15분 넘게 Ready 상태가 아닙니다."
+      },
+      "startsAt": "__STARTS_AT__",
+      "endsAt": "0001-01-01T00:00:00Z",
+      "generatorURL": "http://prometheus.example/graph",
+      "fingerprint": "0000000000000000"
+    }
+  ]
+}

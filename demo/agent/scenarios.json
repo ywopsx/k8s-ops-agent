@@ -1,0 +1,30 @@
+[
+  {
+    "id": "A",
+    "name": "OOMKilled",
+    "alert": "report-worker-crashlooping.json",
+    "expected": "oom_killed",
+    "app": "report-worker"
+  },
+  {
+    "id": "B",
+    "name": "CrashLoopBackOff(설정 오류)",
+    "alert": "order-sync-crashlooping.json",
+    "expected": "app_config_error",
+    "app": "order-sync"
+  },
+  {
+    "id": "C",
+    "name": "Service selector 오류",
+    "alert": "checkout-api-probe-failed.json",
+    "expected": "service_selector_mismatch",
+    "app": ""
+  },
+  {
+    "id": "F",
+    "name": "Pod Pending(nodeSelector)",
+    "alert": "batch-runner-not-ready.json",
+    "expected": "pending_node_selector_mismatch",
+    "app": "batch-runner"
+  }
+]

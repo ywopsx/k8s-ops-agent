@@ -1,0 +1,44 @@
+{
+  "version": "4",
+  "groupKey": "{}:{alertname=\"ProbeFailed\"}",
+  "truncatedAlerts": 0,
+  "status": "firing",
+  "receiver": "ops-agent",
+  "groupLabels": {
+    "alertname": "ProbeFailed"
+  },
+  "commonLabels": {
+    "alertname": "ProbeFailed",
+    "severity": "critical",
+    "namespace": "shop",
+    "service": "checkout-api",
+    "instance": "http://checkout-api.shop.svc/healthz",
+    "job": "blackbox"
+  },
+  "commonAnnotations": {
+    "summary": "checkout-api 외부 헬스 체크가 실패합니다.",
+    "description": "blackbox 프로브가 http://checkout-api.shop.svc/healthz 에 5분 동안 연결하지 못했습니다."
+  },
+  "externalURL": "http://alertmanager.example",
+  "alerts": [
+    {
+      "status": "firing",
+      "labels": {
+        "alertname": "ProbeFailed",
+        "severity": "critical",
+        "namespace": "shop",
+        "service": "checkout-api",
+        "instance": "http://checkout-api.shop.svc/healthz",
+        "job": "blackbox"
+      },
+      "annotations": {
+        "summary": "checkout-api 외부 헬스 체크가 실패합니다.",
+        "description": "blackbox 프로브가 http://checkout-api.shop.svc/healthz 에 5분 동안 연결하지 못했습니다."
+      },
+      "startsAt": "__STARTS_AT__",
+      "endsAt": "0001-01-01T00:00:00Z",
+      "generatorURL": "http://prometheus.example/graph",
+      "fingerprint": "0000000000000000"
+    }
+  ]
+}

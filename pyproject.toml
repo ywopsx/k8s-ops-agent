@@ -7,6 +7,8 @@ dependencies = []
 
 [project.optional-dependencies]
 dev = ["pytest>=8"]
+# Unit 2 에이전트: MCP 클라이언트·서버(SDK)와 Kubernetes MCP 서버. preflight/는 계속 표준 라이브러리만 쓴다.
+agent = ["mcp==1.30.0", "kubernetes-mcp-server==0.1.1"]
 
 [project.scripts]
 preflight = "preflight.cli:main"

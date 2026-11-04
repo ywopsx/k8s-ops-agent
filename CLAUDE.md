@@ -5,14 +5,16 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## 프로젝트 개요
 
-EKS 클러스터 운영 에이전트. 현재 구현된 것은 Unit 1 `preflight/`(노드 교체·업그레이드 사전 점검, 읽기 전용) 하나이고, Unit 2(알림 1차 분석 → Slack 스레드)는 예정 단계다. Python 3.10+.
+EKS 클러스터 운영 에이전트. Unit 1 `preflight/`(노드 교체·업그레이드 사전 점검, 읽기 전용)·`rehearsal/`(kind drain 검증)과 Unit 2 MVP `agent/`(알림 파일 → 읽기 전용 MCP 조회 → 원인 후보 리포트)가 있다. Python 3.10+.
 
 디렉터리 역할과 의존성 (자세한 결정은 `aidlc-docs/00-context.md`의 "결정 사항"):
 
 - `preflight/`: 결정적인 점검만 한다. 표준 라이브러리만 쓰고 LLM을 부르지 않는다(`dependencies = []` 유지).
 - `rehearsal/`: drain 검증·업그레이드 리허설처럼 클러스터를 바꾸는 검증 코드. kind에서만 실행한다.
-- `agent/`: LLM(Anthropic API) 공통 계층. Unit 1 조치 계획 초안, Unit 2 분석.
-- `agent/`, `rehearsal/`, Unit 2 코드의 외부 패키지는 `pyproject.toml`의 `[project.optional-dependencies]`로 분리한다.
+- `agent/`: Unit 2 알림 1차 분석. MCP 클라이언트이고 에이전트 루프를 직접 구현한다. LLM 백엔드는 `claude -p`(내장 도구를 `--tools ""`로 모두 끔)이고 `Backend` 인터페이스로 Anthropic API로 바꿀 수 있다.
+- `preflight_mcp/`: preflight를 감싼 stdio MCP 서버(`run_preflight` 하나). MCP SDK 의존은 여기와 `agent/`에만 둔다.
+- `runbooks/`: 시나리오별 짧은 런북. 에이전트 프롬프트에 들어가고 리포트에 붙는다.
+- `agent/`, `preflight_mcp/`, `rehearsal/`의 외부 패키지는 `pyproject.toml`의 `[project.optional-dependencies]`로 분리한다(`agent` = mcp, kubernetes-mcp-server).
 
 코드 주석, 리포트 메시지·조치 문구, 커밋 메시지, 문서는 모두 한국어로 쓴다.
 
@@ -32,7 +34,14 @@ kind delete cluster --name preflight-demo
 python3 -m rehearsal drain --node <노드> --context kind-<이름> --timeout 60   # kind 노드를 실제로 drain → out/rehearsal/<시각>/
 ./demo/run-drain-demo.sh  # kind 클러스터(preflight-rehearsal, worker 2)에 문제를 심고 worker1을 drain
 kind delete cluster --name preflight-rehearsal
+
+./demo/run-agent-demo.sh [--eval]   # kind 클러스터(ops-agent)에 장애 시나리오 4개 → out/agent/alerts/ → out/agent/reports/
+python3 -m agent analyze --alert out/agent/alerts/<알림>.json [--mode a|c] [--model <모델>]
+python3 -m agent eval --repeats 3 --modes c,a --model <모델>                 # → out/agent/eval/<시각>-<모델>/summary.md
+kind delete cluster --name ops-agent
 ```
+
+`agent/` 테스트는 `tests/agent_fakes.py`의 가짜 LLM 백엔드(`FakeBackend`)와 가짜 MCP 도구 상자(`FakeToolBox`)를 쓴다. 실제 LLM·클러스터를 부르지 않는다. 에이전트는 `demo/agent-viewer-kubeconfig.sh`가 만든 view 전용 kubeconfig(`out/agent/kubeconfig-viewer`, 토큰 포함 — 읽지 말 것)로만 접속한다.
 
 `rehearsal/` 테스트는 `tests/rehearsal_fakes.py`의 가짜 kubectl(`FakeCluster`)과 가짜 시계(`FakeClock`)를 쓴다. 클러스터에 접속하지 않는다.
 

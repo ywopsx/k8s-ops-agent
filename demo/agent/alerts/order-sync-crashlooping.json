@@ -1,0 +1,44 @@
+{
+  "version": "4",
+  "groupKey": "{}:{alertname=\"KubePodCrashLooping\"}",
+  "truncatedAlerts": 0,
+  "status": "firing",
+  "receiver": "ops-agent",
+  "groupLabels": {
+    "alertname": "KubePodCrashLooping"
+  },
+  "commonLabels": {
+    "alertname": "KubePodCrashLooping",
+    "severity": "warning",
+    "namespace": "shop",
+    "pod": "__POD__",
+    "container": "sync",
+    "job": "kube-state-metrics"
+  },
+  "commonAnnotations": {
+    "summary": "Pod가 재시작을 반복합니다.",
+    "description": "Pod shop/__POD__ (sync) 컨테이너가 최근 10분 동안 반복해서 재시작되고 있습니다."
+  },
+  "externalURL": "http://alertmanager.example",
+  "alerts": [
+    {
+      "status": "firing",
+      "labels": {
+        "alertname": "KubePodCrashLooping",
+        "severity": "warning",
+        "namespace": "shop",
+        "pod": "__POD__",
+        "container": "sync",
+        "job": "kube-state-metrics"
+      },
+      "annotations": {
+        "summary": "Pod가 재시작을 반복합니다.",
+        "description": "Pod shop/__POD__ (sync) 컨테이너가 최근 10분 동안 반복해서 재시작되고 있습니다."
+      },
+      "startsAt": "__STARTS_AT__",
+      "endsAt": "0001-01-01T00:00:00Z",
+      "generatorURL": "http://prometheus.example/graph",
+      "fingerprint": "0000000000000000"
+    }
+  ]
+}

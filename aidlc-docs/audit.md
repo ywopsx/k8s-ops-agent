@@ -171,3 +171,68 @@
   - `run-demo.sh` (종료 코드 0, 로그에 오류 줄 없음, `out/report.md` 2026-11-03 01:53:29): HIGH 3 · MEDIUM 9 · INFO 0. README 표의 9행(legacy-batch, payment, debug-shell, preflight-demo-legacy, storefront-web, storefront-nlb, zone-spread의 topology-spread·colocated-replicas, order-api의 colocated-replicas)이 모두 나옴. ip 모드 Service `order-api`는 lb-target-instance에 없음, coredns 없음, local-path-provisioner single-replica는 README가 허용한 결과.
   - `run-drain-demo.sh` (종료 코드 0, `out/rehearsal/20261103-015605/`): 전체 61.8초(타임아웃 60초), uncordon 함. PDB에 막힘 1(429로 25회) · 재배치 실패 2 · 컨트롤러 없음 1 · evict 실패 0 · 재배치 완료 2 · 건너뜀 2. 예측 비교 7행: 예측함·발생 6, 예측함·발생 안 함 1(`payment`의 single-replica), 예측 못 함·발생 0. `order-api` 다운타임 가능은 colocated-replicas로 예측함·발생.
 - **수정 파일**: `CLAUDE.md`, `.claude/settings.json`, `demo/run-demo.sh`, `demo/run-drain-demo.sh`, `aidlc-state.md`, `00-context.md`, `audit.md`, `plans/unit1-07-colocated-replicas.md`
+
+
+---
+
+## 2026-11-04T15:35:00+09:00 — Unit 1 마무리, Unit 2 MVP 구현과 평가
+
+- **사용자 입력**:
+
+  > Unit 1은 여기서 마무리하고 Unit 2 MVP를 빠르게 만든다. 포트폴리오에 올리는 게 목표라 범위를 최소로 한다.
+  >
+  > ## 질문지 답 (requirement-verification-questions.md에 반영)
+  > - Q1 시나리오: A OOMKilled, B CrashLoopBackOff, C Service selector 오류(엔드포인트 없음), F Pod Pending(nodeSelector 불일치)
+  > - Q2 실행 형태: A CLI. Alertmanager webhook JSON 형식의 알림 파일을 입력으로 받아 분석 리포트(Markdown, JSON)를 출력
+  > - Q3 분석 구조: C. 처음에 Pod 상태와 Event만 수집해 LLM에 주고, LLM이 읽기 전용 도구를 골라 추가 조회한다. 도구 호출은 최대 5회. 비교용으로 A(고정 수집 + LLM 1회) 모드도 옵션으로 둔다
+  > - Q4 모델: 하나로 개발하고, 평가 때만 다른 모델과 한 번 비교
+  > - Q5 LLM 데이터: B 로그 최근 N줄, 토큰·비밀번호·IP 패턴 마스킹
+  > - Q6 런북: C 시나리오별 짧은 런북을 runbooks/에 작성해 프롬프트에 넣는다
+  > - Q7 Slack: C 이번에는 파일 출력만
+  > - Q8 결과: A, B, C, D, F
+  > - Q10: A 읽기 전용
+  > - Q11: B 정답 원인 ID를 정해 두고 자동 채점, 시나리오당 3회
+  > - Q12: 관측 스택을 띄우지 않으므로 해당 없음 (Prometheus, Loki, Grafana는 이번 범위에서 제외)
+  > - Q13 동기: 운영 중 알림이 오면 Teams로 들어온 Datadog·CloudWatch 알림을 확인하고, Pod나 서비스 관련 알림이면 kubectl로 Pod 상태와 로그를 하나씩 조회해 1차 원인을 찾았다. AWS DevOps Agent로 알람 원인 분석을 해 보기도 했는데, 이 1차 분석을 쿠버네티스 환경에서 에이전트가 먼저 하게 직접 만들고, 그 정확도를 재 보고 싶었다.
+  >
+  > ## 구조
+  > - agent/ 패키지에 에이전트 루프를 직접 구현한다. 에이전트는 MCP 클라이언트다.
+  > - 붙이는 MCP 서버는 두 개:
+  >   1. 쿠버네티스 조회: 공개된 Kubernetes MCP 서버(containers/kubernetes-mcp-server 권장)를 쓴다. read_only = true로 실행한다.
+  >   2. 업그레이드 사전 점검: preflight를 감싼 MCP stdio 서버를 직접 만든다 (도구: run_preflight). Claude Code에서 붙여 쓰는 방법도 README에 적는다.
+  > - 권한은 세 겹으로 막는다: MCP 서버 read_only, 기본 view ClusterRole만 가진 ServiceAccount의 kubeconfig, kind 컨텍스트 확인(rehearsal의 guard 재사용). view라 Secret은 읽지 못한다.
+  > - README에 "실무에서는 Datadog MCP, GitLab MCP를 추가로 붙여 지표와 배포 이력까지 보도록 확장할 수 있다"고 설계 의도만 적는다. 실제로 붙이지는 않는다.
+  >
+  > ## LLM 호출
+  > - 지금은 claude -p(비대화형)를 LLM 백엔드로 쓴다. 나중에 Anthropic API로 바꿀 수 있게 백엔드 인터페이스를 분리한다.
+  > - 중요: claude -p 호출에서는 Claude Code의 내장 도구(Bash, 파일 읽기·쓰기 등)를 쓸 수 없게 막는다. LLM은 텍스트로 다음 행동(도구 이름과 인자, 또는 최종 결론)만 답하고, 도구 실행은 우리 에이전트 코드가 MCP로 한다. claude --help로 내장 도구를 끄는 옵션을 확인한 뒤 적용하고, 어떻게 막았는지 보여 줘. 막을 방법을 찾지 못하면 구현하지 말고 멈춰.
+  > - 토큰과 비용은 claude -p --output-format json 결과에 있으면 기록하고, 없으면 시간만 기록한다고 README에 적는다.
+  > - 테스트는 가짜 LLM 백엔드로, 실제 호출을 하지 않는다.
+  > - 외부 패키지(MCP SDK 등)는 pyproject의 optional-dependencies(agent)로 분리한다. preflight/는 계속 표준 라이브러리만 쓴다.
+  >
+  > ## 데모와 평가
+  > - demo/run-agent-demo.sh: kind에 시나리오 4개를 일으키고, 각 알림 파일로 에이전트를 돌려 리포트를 남긴다.
+  > - eval: 시나리오 4개 × 3회 × 2모드(A, C). 정확도, 평균 시간, 도구 호출 수, 토큰(가능하면)을 표로 만들어 README에 넣는다.
+  > - README 맨 위 표의 Unit 2 상태와 설명을 갱신한다.
+  >
+  > ## 진행 방식
+  > - 계획은 짧게 보여 주고, 내 승인 없이 바로 구현해도 된다.
+  > - kind 데모와 eval도 네가 돌린다. 클러스터는 메모리 때문에 하나씩만 띄운다.
+  > - 실제 환경 이름은 어디에도 넣지 않는다.
+  > - 끝나면 결과 요약(정확도 표 포함), 막힌 점, git diff --stat을 보여 주고 push 전에 멈춘다.
+
+- **AI 판단**:
+  - `claude -p` 내장 도구 차단(진행 조건): `claude --help`에서 `--tools ""`(모든 내장 도구 끄기)를 찾음. `--strict-mcp-config`(MCP 서버 없음), `--setting-sources ""`(사용자·프로젝트 설정 안 읽음), `--system-prompt`, 빈 임시 cwd(CLAUDE.md 안 읽음)를 함께 씀. 빈 디렉터리에서 실제 실행해 init 이벤트 `tools: []`·`mcp_servers: []`를 확인하고, "Bash로 파일을 만들라"는 요청에 파일이 생기지 않는 것을 확인한 뒤 구현함. 매 호출마다 init 이벤트를 검사해 도구가 있으면 멈추게 함(`ToolsNotDisabledError`). OAuth 로그인을 쓰므로 API 키가 필요한 `--bare`는 쓰지 않음.
+  - 토큰·비용: `--output-format json` 대신 `stream-json`을 씀(init 이벤트로 도구 상태를 확인하려고). result 이벤트에 `usage`·`total_cost_usd`가 있어 기록함. 캐시 때문에 `input_tokens`만으로는 입력이 작게 보여, 평가 표의 입력 토큰은 입력+캐시 읽기+캐시 쓰기로 계산.
+  - 패키지: node·uv가 없어 PyPI의 `kubernetes-mcp-server==0.1.1`(첫 실행 때 공식 GitHub 릴리스 바이너리를 내려받는 래퍼)과 `mcp==1.30.0`(API가 익숙한 1.x)을 `.venv`에 설치하고 optional-dependencies `agent`에 고정.
+  - Kubernetes MCP 서버: `read_only = true`일 때 쓰기 도구 6개가 목록에서 빠지는 것을 read_only=false와 비교해 확인. 에이전트 코드에도 읽기 도구 7개 + `run_preflight` 허용 목록을 둠(사용자 지시의 세 겹 외 추가). view ServiceAccount로 Secret 조회가 forbidden인 것을 MCP 호출로 확인.
+  - preflight MCP 서버는 `preflight_mcp/`에 둠(`preflight/`는 표준 라이브러리 유지). preflight의 `[warn]` 출력이 stdio MCP의 stdout(JSON-RPC 통로)을 깨뜨릴 수 있어 가로채 `warnings`로 돌려줌. 이 서버도 kind 컨텍스트에서만 실행.
+  - 원인 ID: 정답 4개 + 헷갈리기 쉬운 원인 6개. 워크로드·알림 이름은 원인을 드러내지 않게 정함(A·B는 같은 `KubePodCrashLooping`).
+  - 첫 데모에서 B가 도구 호출 없이 맞았는데, 근거가 Pod spec의 command에 적힌 에러 문구였음 → 평가가 공정하지 않다고 보고 스크립트를 ConfigMap으로 옮김. 다시 돌린 B는 `pods_log`로 근거를 찾음.
+  - 평가 비용 평균값이 소수 둘째 자리 반올림으로 0.0이 되어 넷째 자리로 고치고, 저장된 runs.json으로 요약을 다시 만듦(재실행 없음).
+  - 문서: 질문지 답변 반영, "이미 정해진 것"과 `00-context.md`의 Unit 2 범위·결정을 MVP로 바꿈(관측 스택·webhook·Slack·Anthropic API·런북 유무 비교는 다음 단계). 열린 질문 Q12·Q13 닫음. README Unit 2 절과 평가 표, CLAUDE.md 갱신. README 동기 문단은 제품·메신저 이름을 일반 표현으로 씀.
+- **검증**:
+  - pytest 100개 통과 (새 테스트 25개, 가짜 LLM 백엔드·가짜 MCP 도구 상자, 실제 호출 없음)
+  - `run-agent-demo.sh` (kind 클러스터 `ops-agent` 하나만): 시나리오 4개 장애 상태 확인, 모드 C 4개 모두 정답. 리포트 JSON에 Pod IP 0건(마스킹)
+  - 평가: claude-sonnet-5-5 모드 C 12/12(평균 14.48초, LLM 선택 도구 0.58회, $0.0503), 모드 A 12/12(10.55초, $0.0388). claude-haiku-5-5 모드 C 4/4, A 4/4(약 1/17 비용). 정확도가 천장이라 시나리오 변별력이 없고, 이번 시나리오에서는 고정 수집(A)이 더 빠르고 쌌다는 점을 README에 적음
+- **생성·수정 파일**: `agent/`(신규), `preflight_mcp/`(신규), `runbooks/`(신규), `demo/agent/`(신규), `demo/run-agent-demo.sh`·`demo/agent-viewer-kubeconfig.sh`(신규), `tests/agent_fakes.py`·`test_agent_llm.py`·`test_agent_loop.py`·`test_agent_runtime.py`(신규), `pyproject.toml`, `README.md`, `CLAUDE.md`, `00-context.md`, `aidlc-state.md`, `audit.md`, `inception/requirements/requirement-verification-questions.md`

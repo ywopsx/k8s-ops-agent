@@ -32,15 +32,19 @@ AI-DLC 방식(Inception → Construction → Operations)으로 진행하고, AI�
   6. MCP 서버: stdio 방식으로 `run_preflight` 도구 하나만 연다. Unit 2 에이전트가 이 도구를 불러 쓴다.
   7. replica 한 노드 몰림 점검 (`preflight/`, 가칭 colocated-replicas): replica 2개 이상, PDB 없음, Ready Pod가 모두 같은 노드인 워크로드 찾기. drain 데모에서 `order-api`가 예측 못 한 다운타임으로 나와서 추가함. 계획: `plans/unit1-07-colocated-replicas.md`
 
-### Unit 2. 알림 1차 분석 에이전트 (예정)
+### Unit 2. 알림 1차 분석 에이전트 (MVP, 2026-11-04)
 
-- kind에 Prometheus, Alertmanager, Grafana, Loki를 띄운다 (노트북 RAM 8GB라 가볍게 설정한다).
-- 장애 시나리오 5개 정도: OOMKilled, CrashLoopBackOff, Service 포트·selector 오류, NetworkPolicy 차단, CoreDNS 장애
-- Alertmanager가 에이전트 webhook을 호출한다 (Slack 게시 방식은 질문지 Q7에서 정한다)
-- 에이전트는 PromQL, LogQL, kubectl을 읽기 전용으로 병렬 조회하고, 원인 후보와 런북을 Slack 알림 스레드에 답글로 남긴다.
-- 차별점: 시나리오마다 정답 원인을 정해 두고 정확도, 걸린 시간, 토큰 비용을 측정한다. 런북을 줄 때와 안 줄 때를 비교한다.
-- Unit 1 점검 도구를 MCP 도구(`run_preflight`)로 제공해서 Unit 2 에이전트가 불러 쓴다.
-- 세부 요구사항은 `inception/requirements/requirement-verification-questions.md` 답변으로 정한다.
+포트폴리오용 MVP로 범위를 최소로 했다. 세부 요구사항은 `inception/requirements/requirement-verification-questions.md`의 답변을 따른다.
+
+- 입력: Alertmanager webhook JSON 형식의 알림 파일 (CLI `python -m agent analyze`). 출력: Markdown·JSON 리포트
+- 시나리오 4개: OOMKilled, CrashLoopBackOff(설정 오류), Service selector 오류(엔드포인트 없음), Pod Pending(nodeSelector 불일치)
+- 분석 구조: C(Pod 상태·Event 수집 → LLM이 읽기 전용 도구를 골라 최대 5회 추가 조회)가 기본. 비교용 A(고정 수집 + LLM 1회)
+- 에이전트는 MCP 클라이언트다. 붙이는 MCP 서버: Kubernetes 조회(containers/kubernetes-mcp-server, read_only), preflight(`run_preflight`, 직접 만든 stdio 서버)
+- 권한 세 겹: MCP 서버 read_only, 기본 view ClusterRole ServiceAccount kubeconfig(Secret 못 읽음), kind 컨텍스트 확인(rehearsal guard). 에이전트 코드에도 도구 허용 목록을 둔다
+- LLM: `claude -p`(내장 도구·MCP·외부 설정을 끈 상태)를 백엔드로 쓰고, 백엔드 인터페이스를 나눠 Anthropic API로 바꿀 수 있게 한다
+- 데이터: 상태·Event + 로그 최근 N줄, 토큰·비밀번호·IP 마스킹 후 LLM에 보낸다. 런북은 `runbooks/`에 시나리오별로 둔다
+- 평가: 시나리오 4 × 3회 × 모드 A·C, 정답 원인 ID 자동 채점. 정확도·평균 시간·도구 호출 수·토큰. 다른 모델과 한 번 비교
+- 다음 단계로 미룬 것: 관측 스택(Prometheus·Alertmanager·Grafana·Loki), webhook 서버, Slack 스레드 답글, NetworkPolicy·CoreDNS 시나리오, 런북 유무 비교, Datadog·GitLab MCP 연동
 
 ### 하지 않는 것
 
@@ -62,7 +66,9 @@ AI-DLC 방식(Inception → Construction → Operations)으로 진행하고, AI�
 - 의존성: `preflight/`는 표준 라이브러리만 쓴다. Unit 2와 에이전트 코드는 외부 패키지를 쓸 수 있고, `pyproject.toml`의 `[project.optional-dependencies]`로 분리한다. 기본 설치(`dependencies = []`)는 그대로 둔다.
 - rehearsal/ 안전장치: 실행 전에 현재 kubeconfig 컨텍스트가 `kind-`로 시작하는지 코드에서 확인하고, 아니면 아무것도 하지 않고 멈춘다.
 - LLM: Anthropic API를 쓴다. API 키는 환경 변수(`.env`)로만 관리하고 코드·문서·테스트·픽스처에 넣지 않는다. 모델 선택은 Unit 2 요구사항에서 정한다.
+  - 2026-11-04 변경: MVP는 `claude -p`를 백엔드로 쓴다(API 키 불필요). Anthropic API 백엔드는 같은 인터페이스로 나중에 추가한다.
 - MCP: stdio 서버로 시작하고, 처음에는 `run_preflight` 도구 하나만 연다.
+- MCP 위치(2026-11-04): preflight를 감싼 서버는 `preflight_mcp/`에 둔다. `preflight/`는 계속 표준 라이브러리만 쓰고, MCP SDK 의존은 `preflight_mcp/`와 `agent/`에만 있다.
 
 ## 원칙
 
@@ -82,9 +88,10 @@ AI-DLC 방식(Inception → Construction → Operations)으로 진행하고, AI�
 - 2026-11-03: drain 데모를 kind에서 확인. 예측한 6건 모두 기대 결과와 일치, 예측 못 한 다운타임 1건(`order-api`) → 백로그 7번(replica 한 노드 몰림 점검) 계획 추가
 - 2026-11-03: colocated-replicas 점검 구현. 보호 효과 없는 PDB(maxUnavailable ≥ replica, minAvailable 0)도 PDB 없음으로 판정. 같은 AZ 몰림은 백로그 후보로 남김. 단위 테스트 75개
 - 2026-11-03: 작업 방식 변경 — kind 데모는 Claude가 실행하고 결과는 로그·리포트로 보여 준다. run-demo.sh의 ServiceAccount 경합 오류 수정 후 두 데모 모두 README 기대 결과와 일치 확인. drain 데모의 예측 못 한 문제 0건
+- 2026-11-04: Unit 1 마무리. Unit 2 MVP 질문지 답변 확정, `agent/`·`preflight_mcp/`·`runbooks/`·`demo/run-agent-demo.sh` 구현
 
 ## 열린 질문
 
-- Unit 2의 동기: 실제 운영에서 알림 1차 분석을 어떻게 했는지 정리해서 채운다 (질문지 Q13).
-- 관측 스택 메모리 기준: 노트북 RAM 8GB에서 kind + Prometheus·Alertmanager·Grafana·Loki에 얼마까지 쓸지, 무엇을 줄이거나 뺄지 (질문지 Q12).
+- ~~Unit 2의 동기 (질문지 Q13)~~ → 2026-11-04 답변 완료
+- ~~관측 스택 메모리 기준 (질문지 Q12)~~ → 2026-11-04 관측 스택을 MVP 범위에서 빼서 해당 없음. 다음 단계에서 다시 정한다
 - 공개 전 git 기록에서 실제 환경 이름 제거: 첫 커밋에 실제 환경 이름으로 보이는 노드그룹 값이 남아 있다. 작업 트리에서는 일반 값으로 바꿨지만 기록에는 남으므로, 레포를 공개하기 전에 기록 정리(history rewrite) 여부와 방법을 정한다.

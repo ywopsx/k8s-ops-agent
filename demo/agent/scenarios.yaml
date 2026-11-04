@@ -1,0 +1,143 @@
+# 알림 1차 분석 데모 시나리오. 이름은 원인을 드러내지 않게 일반적인 서비스 이름으로 둔다.
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: shop
+---
+# 컨테이너가 실행하는 스크립트. Pod spec의 command에 원인(에러 문구)이 그대로 드러나지 않게 따로 둔다.
+# 실제 애플리케이션처럼, 원인은 Pod 상태·로그를 봐야 알 수 있다.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: app-scripts
+  namespace: shop
+data:
+  report-worker.sh: |
+    echo "report-worker: loading monthly dataset"
+    dd if=/dev/zero of=/dev/null bs=256M count=1 2>/dev/null
+    echo "report-worker: done"
+    sleep 3600
+  order-sync.sh: |
+    echo "order-sync 2.4.1 starting"
+    echo "loading config from environment"
+    if [ -z "$ORDER_DB_URL" ]; then
+      echo "FATAL: required environment variable ORDER_DB_URL is not set" >&2
+      exit 1
+    fi
+    sleep 3600
+---
+# [A] 메모리 limit보다 큰 버퍼를 잡아 OOMKilled → 재시작 반복
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: report-worker
+  namespace: shop
+spec:
+  replicas: 1
+  selector:
+    matchLabels: {app: report-worker}
+  template:
+    metadata:
+      labels: {app: report-worker}
+    spec:
+      containers:
+        - name: worker
+          image: busybox:1.36.1
+          command: ["sh", "/app/report-worker.sh"]
+          volumeMounts:
+            - {name: scripts, mountPath: /app}
+          resources:
+            requests: {memory: 32Mi, cpu: 10m}
+            limits: {memory: 48Mi}
+      volumes:
+        - name: scripts
+          configMap: {name: app-scripts}
+---
+# [B] 필수 환경변수가 없어 시작 직후 종료 → CrashLoopBackOff
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: order-sync
+  namespace: shop
+spec:
+  replicas: 1
+  selector:
+    matchLabels: {app: order-sync}
+  template:
+    metadata:
+      labels: {app: order-sync}
+    spec:
+      containers:
+        - name: sync
+          image: busybox:1.36.1
+          command: ["sh", "/app/order-sync.sh"]
+          env:
+            - name: LOG_LEVEL
+              value: info
+          volumeMounts:
+            - {name: scripts, mountPath: /app}
+          resources:
+            requests: {memory: 16Mi, cpu: 10m}
+      volumes:
+        - name: scripts
+          configMap: {name: app-scripts}
+---
+# [C] Pod는 정상이지만 Service selector가 Pod 라벨과 다름 → 엔드포인트 없음
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: checkout-api
+  namespace: shop
+spec:
+  replicas: 2
+  selector:
+    matchLabels: {app: checkout-api}
+  template:
+    metadata:
+      labels: {app: checkout-api, tier: web}
+    spec:
+      containers:
+        - name: api
+          image: busybox:1.36.1
+          command: ["sh", "-c", "mkdir -p /www && echo ok > /www/healthz && httpd -f -p 8080 -h /www"]
+          ports:
+            - containerPort: 8080
+          readinessProbe:
+            httpGet: {path: /healthz, port: 8080}
+            periodSeconds: 5
+          resources:
+            requests: {memory: 16Mi, cpu: 10m}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: checkout-api
+  namespace: shop
+spec:
+  selector: {app: checkout}
+  ports:
+    - port: 80
+      targetPort: 8080
+---
+# [F] 클러스터에 없는 노드 라벨에 묶여 Pending
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: batch-runner
+  namespace: shop
+spec:
+  replicas: 1
+  selector:
+    matchLabels: {app: batch-runner}
+  template:
+    metadata:
+      labels: {app: batch-runner}
+    spec:
+      nodeSelector:
+        node-role: batch
+      containers:
+        - name: runner
+          image: busybox:1.36.1
+          command: ["sh", "-c", "sleep 3600"]
+          resources:
+            requests: {memory: 16Mi, cpu: 10m}
