@@ -89,9 +89,10 @@ AI-DLC 방식(Inception → Construction → Operations)으로 진행하고, AI�
 - 2026-11-03: colocated-replicas 점검 구현. 보호 효과 없는 PDB(maxUnavailable ≥ replica, minAvailable 0)도 PDB 없음으로 판정. 같은 AZ 몰림은 백로그 후보로 남김. 단위 테스트 75개
 - 2026-11-03: 작업 방식 변경 — kind 데모는 Claude가 실행하고 결과는 로그·리포트로 보여 준다. run-demo.sh의 ServiceAccount 경합 오류 수정 후 두 데모 모두 README 기대 결과와 일치 확인. drain 데모의 예측 못 한 문제 0건
 - 2026-11-04: Unit 1 마무리. Unit 2 MVP 질문지 답변 확정, `agent/`·`preflight_mcp/`·`runbooks/`·`demo/run-agent-demo.sh` 구현
+- 2026-11-04: 레포 공개 준비 — git 기록 전체에서 실제 환경 이름으로 보이는 노드그룹 값을 일반 값으로 교체(history rewrite, force push)
 
 ## 열린 질문
 
 - ~~Unit 2의 동기 (질문지 Q13)~~ → 2026-11-04 답변 완료
 - ~~관측 스택 메모리 기준 (질문지 Q12)~~ → 2026-11-04 관측 스택을 MVP 범위에서 빼서 해당 없음. 다음 단계에서 다시 정한다
-- 공개 전 git 기록에서 실제 환경 이름 제거: 첫 커밋에 실제 환경 이름으로 보이는 노드그룹 값이 남아 있다. 작업 트리에서는 일반 값으로 바꿨지만 기록에는 남으므로, 레포를 공개하기 전에 기록 정리(history rewrite) 여부와 방법을 정한다.
+- ~~공개 전 git 기록에서 실제 환경 이름 제거~~ → 2026-11-04 완료. `git filter-repo --replace-text`로 기록 전체의 노드그룹 값을 `ng-legacy`로 바꾸고 force push했다. `git log -p --all`, 커밋 메시지, 저장소의 모든 객체에서 원래 값 0건을 확인했고, 최종 트리는 바꾸기 전과 같다. 모든 커밋 해시가 바뀌었으므로 다른 곳의 clone은 다시 받는다. 원래 값이 든 백업(bundle, 치환 목록)은 레포 밖에만 둔다.
