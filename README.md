@@ -218,11 +218,19 @@ A와 B는 같은 알림(`KubePodCrashLooping`)이라 알림 이름만으로는 �
 
 ### Claude Code에서 preflight MCP 서버 쓰기
 
+레포 루트에서 실행합니다. `out/agent/kubeconfig-viewer`는 `./demo/run-agent-demo.sh`(또는 `./demo/agent-viewer-kubeconfig.sh ops-agent out/agent/kubeconfig-viewer`)가 만들고, 안의 토큰은 4시간 뒤 만료됩니다.
+
 ```bash
 claude mcp add preflight -e KUBECONFIG=$PWD/out/agent/kubeconfig-viewer -e PYTHONPATH=$PWD -- $PWD/.venv/bin/python -m preflight_mcp
+claude mcp get preflight          # Status: ✔ Connected 이면 등록 완료
+claude mcp remove preflight -s local   # 정리
 ```
 
-Claude Code 대화에서 "1.33 업그레이드 전 사전 점검을 돌려 줘"라고 하면 `run_preflight` 도구를 부릅니다. 이 서버도 `kind-` 컨텍스트에서만 실행하고, preflight가 stdout에 찍는 조회 경고는 결과의 `warnings`로 돌려줍니다(stdio MCP에서 stdout은 JSON-RPC 통로라서).
+Claude Code 대화에서 "run_preflight로 1.33 업그레이드 사전 점검을 돌려 줘"라고 하면 `mcp__preflight__run_preflight` 도구를 부릅니다. 이 서버도 `kind-` 컨텍스트에서만 실행하고, preflight가 stdout에 찍는 조회 경고는 결과의 `warnings`로 돌려줍니다(stdio MCP에서 stdout은 JSON-RPC 통로라서). view 권한이라 RBAC·클러스터 범위 리소스 조회는 막혀 `warnings`에 남고, 그 리소스를 보는 점검은 빠집니다.
+
+**확인한 것 (2026-11-05, kind 클러스터 `ops-agent`):** 위 명령으로 등록하면 `claude mcp get`이 `Connected`를 보여 주고, `claude -p`에서 `run_preflight`가 실제로 호출되어 결과(context `kind-ops-agent-viewer`, findings 1건, warnings 9건)가 돌아왔습니다.
+
+**주의 — 비대화형 `claude -p`에서는 첫 턴에 도구가 없을 수 있습니다.** 이 서버는 시작에 약 2초(MCP SDK import)가 걸리는데, `claude -p`는 서버 연결이 끝나기 전에 첫 턴을 시작하는 경우가 많아 그때는 도구 목록에 `run_preflight`가 없습니다(init 이벤트에서 `pending`). 5번 시도 중 1번만 호출됐고, `MCP_TIMEOUT`을 늘려도 같았습니다. 대화형 세션에서는 `/mcp`로 `preflight`가 connected인지 본 뒤 요청하세요(대화형 세션은 직접 확인하지 않았습니다). 에이전트(`python -m agent`)는 서버 초기화가 끝난 뒤에 루프를 시작하므로 이 문제가 없습니다.
 
 ### 평가
 
@@ -269,6 +277,8 @@ Claude Code 대화에서 "1.33 업그레이드 전 사전 점검을 돌려 줘"�
 - **제거된 API 표**(`preflight/removed_apis.py`)는 새 버전이 나올 때마다 갱신해야 합니다.
 - **`colocated-replicas`는 점검 시점의 Pod 배치를 봅니다.** 스케줄러가 나중에 다르게 배치할 수 있어서, 조치 문구는 PDB와 노드 분산 제약 같은 구조적인 방법을 안내합니다. Ready Pod가 같은 AZ에 몰린 경우(AZ 장애·한 AZ 노드 일괄 교체 때의 같은 문제)는 아직 보지 않습니다.
 - **drain 검증은 kind에서의 재현입니다.** 실제 EKS의 로드밸런서 대상 해제(`exclude-from-external-load-balancers`), 새 노드 기동, Karpenter 통합은 일어나지 않습니다. eviction과 대체 Pod 대기는 하나의 타임아웃 안에서 진행하므로, 타임아웃 직전에 evict된 Pod는 대체 Pod를 기다릴 시간이 짧습니다. 다운타임 가능 여부는 evict 시점의 Ready Pod 수로 판단한 것이고, 실제 요청 실패를 측정한 것은 아닙니다.
+- **`run_preflight` 결과가 두 번 감싸져 나옵니다.** 도구가 JSON 문자열을 돌려주어 FastMCP가 `{"result": "<JSON 문자열>"}`로 한 번 더 감쌉니다. 다음 단계로 dict를 돌려주게 바꿔 결과를 바로 JSON으로 보이게 할 계획입니다.
+- **preflight MCP 서버 시작에 약 2초가 걸립니다**(대부분 FastMCP import). 이 때문에 `claude -p`에서 첫 턴에 도구가 없을 수 있어, 다음 단계로 더 가벼운 저수준 서버로 바꿔 시작 시간을 재 볼 계획입니다.
 
 ## AI 활용
 

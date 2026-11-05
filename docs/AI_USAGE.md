@@ -26,6 +26,7 @@
 | 2026-11-03 | drain 계획 문서의 기대 결과 표가 구현 중 바뀐 결과(zone-spread 재배치 실패, order-api 다운타임)를 반영하지 못함. README 표는 맞았음 | 데모 리포트를 계획 문서·README 표와 각각 대조 | 계획 문서에 바뀐 점과 README 표가 기준이라는 것을 표시 |
 | 2026-11-03 | 새로 만든 kind 클러스터에서 run-demo.sh가 debug-shell 생성 중 Forbidden(default ServiceAccount 없음)으로 멈췄는데, 기존 out/report.md가 남아 있어 결과가 나온 것처럼 보임 | 리포트 수정 시각(11-02)과 로그 마지막 줄을 대조 | 네임스페이스와 ServiceAccount를 먼저 만들도록 두 데모 스크립트 수정, 데모 결과는 로그·리포트 시각을 함께 확인 |
 | 2026-11-04 | 첫 에이전트 데모에서 CrashLoopBackOff(설정 오류) 시나리오가 로그를 보지 않고 정답을 냄. 근거가 Pod spec의 command에 적힌 에러 문구였음 | 리포트의 근거 칸과 조회 기록(LLM 선택 0회)을 대조 | 스크립트를 ConfigMap으로 옮겨 command에 문구가 보이지 않게 하고 다시 평가. 이후 근거가 pods_log로 바뀜 |
+| 2026-11-05 | README에 적은 MCP 연결 방법을 실제로 해 본 적이 없었음. 평가 32회 동안 에이전트가 run_preflight를 한 번도 호출하지 않음 | kind에서 Claude Code에 직접 연결해 등록·호출을 확인. claude -p에서는 서버 시작 전에 요청이 나가 5번 중 1번만 호출됨 | README를 실제로 확인한 절차와 결과로 고치고, claude -p 타이밍 문제와 대화형은 /mcp로 연결을 확인한 뒤 쓰라는 주의를 적음 |
 
 ## AI 결과를 그대로 믿지 않은 부분
 
