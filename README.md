@@ -4,9 +4,21 @@ EKS 클러스터를 운영하면서 반복하던 판단을 에이전트가 먼�
 
 | 구성 | 하는 일 | 상태 |
 | --- | --- | --- |
-| Unit 1. 노드 교체 사전 점검 (`preflight/`) | 업그레이드나 노드 교체를 실패하게 만드는 요소를 미리 찾는 읽기 전용 점검 | v0.1 |
-| Unit 1. drain 검증 (`rehearsal/`) | kind 노드를 실제로 drain해 점검의 예측과 실제 결과를 비교 | 구현 |
-| Unit 2. 알림 1차 분석 (`agent/`) | 알림 파일을 받아 읽기 전용 MCP 도구로 Pod 상태·Event·로그를 조회하고, 원인 후보·근거·런북을 리포트로 남김. 정답 원인 ID로 정확도 평가 | MVP |
+| Unit 1. 노드 교체 사전 점검 (`preflight/`) | 업그레이드나 노드 교체를 실패하게 만드는 요소를 미리 찾는 읽기 전용 점검 | 점검 10종 |
+| Unit 1. drain 검증 (`rehearsal/`) | kind 노드를 실제로 drain해 점검의 예측과 실제 결과를 비교 | kind에서 drain 검증 |
+| Unit 2. 알림 1차 분석 (`agent/`) | 알림 파일을 받아 읽기 전용 MCP 도구로 Pod 상태·Event·로그를 조회하고, 원인 후보·근거·런북을 리포트로 남김. 정답 원인 ID로 정확도 평가 | 알림 분석 MVP |
+
+## 한눈에 보기
+
+- 업그레이드 때 손으로 하던 체크리스트를 읽기 전용 점검 10종으로 만들고, kind에서 실제로 drain해 예측과 실측을 비교했습니다. 예측하지 못한 다운타임(한 노드에 몰린 replica)을 찾아 점검을 추가했고, 다시 돌려 예측 못 한 문제 0건을 확인했습니다.
+- 알림 1차 분석 에이전트를 MCP 클라이언트로 만들고 권한을 세 겹으로 제한했습니다. 장애 시나리오 4개에서 고정 수집과 에이전트 방식 모두 12/12를 맞혔고, 신호가 분명한 장애에서는 고정 수집이 더 빠르고 쌌습니다.
+- 구현은 AI 코딩 에이전트에 맡기고 점검 항목과 검증은 직접 했습니다. AI 결과를 바로잡은 기록은 [docs/AI_USAGE.md](docs/AI_USAGE.md)에 있습니다.
+
+## 실행 준비물
+
+- Python 3.10 이상 (`preflight/`는 표준 라이브러리만 씀, 테스트는 pytest)
+- kind 데모: Docker, kind, kubectl
+- Unit 2: Claude Code CLI(`claude`), `pip install -e '.[agent]'`
 
 ---
 
@@ -14,7 +26,7 @@ EKS 클러스터를 운영하면서 반복하던 판단을 에이전트가 먼�
 
 Kubernetes(EKS) 클러스터를 업그레이드하기 전에, **업그레이드나 노드 교체를 실패하게 만드는 요소를 미리 찾아 주는 읽기 전용 점검 도구**입니다.
 
-## 왜 만들었나
+### 왜 만들었나
 
 운영 중인 EKS 클러스터를 매 버전 직접 업그레이드하면서, 매번 같은 항목을 손으로 확인했습니다. 그리고 확인을 놓친 항목은 실제 장애로 이어졌습니다.
 
@@ -24,7 +36,7 @@ Kubernetes(EKS) 클러스터를 업그레이드하기 전에, **업그레이드�
 
 이 도구는 그 체크리스트를 코드로 옮긴 것입니다. 사람이 기억에 의존하던 확인을 반복 가능한 점검으로 바꾸는 것이 목표입니다.
 
-## 점검 항목
+### 점검 항목
 
 | 점검 | 심각도 | 찾는 것 |
 | --- | --- | --- |
@@ -39,14 +51,14 @@ Kubernetes(EKS) 클러스터를 업그레이드하기 전에, **업그레이드�
 | `topology-spread` | MEDIUM / INFO | AZ 분산 제약이 걸린 Deployment·StatefulSet. DoNotSchedule·필수 podAntiAffinity는 MEDIUM, ScheduleAnyway는 INFO |
 | `colocated-replicas` | MEDIUM | replica 2개 이상인데 Ready Pod가 모두 한 노드에 있고, 보호 효과 있는 PDB가 없는 Deployment·StatefulSet (drain 때 대체 Pod보다 먼저 모두 evict됨). `maxUnavailable`이 replica 수 이상(100% 포함)이거나 `minAvailable`이 0인 PDB는 없는 것으로 봄 |
 
-## 설계 원칙
+### 설계 원칙
 
 1. **읽기 전용:** `kubectl get`만 실행하고 클러스터를 바꾸지 않습니다. 운영 클러스터에서도 부담 없이 돌릴 수 있어야 합니다.
 2. **결정은 사람이:** 무엇이 왜 위험한지와 조치 방법을 리포트로 보여 줄 뿐, 자동으로 고치지 않습니다.
 3. **근거를 남긴다:** `--save-snapshot`으로 점검 시점의 리소스를 저장해, 나중에 같은 결과를 재현하거나 업그레이드 전후를 비교할 수 있습니다.
 4. **CI에서 쓸 수 있게:** 기준 심각도 이상이 있으면 종료 코드 1을 돌려줍니다(`--fail-on`).
 
-## 사용법
+### 사용법
 
 ```bash
 # 현재 kubeconfig context의 클러스터를 1.33 기준으로 점검
@@ -72,9 +84,9 @@ python3 -m preflight --target-version 1.33 --format json --fail-on medium
 }
 ```
 
-## 검증
+### 검증
 
-### 단위 테스트
+#### 단위 테스트
 
 ```bash
 pip install pytest
@@ -83,7 +95,7 @@ python3 -m pytest -q
 
 실무에서 겪은 상황을 테스트로 재현합니다. 예를 들어 `test_cni_overwritten_settings_are_detected`는 add-on 업데이트로 Custom Networking 설정이 덮어써진 상태를, `test_platform_pods_in_kube_system_are_still_checked`는 kube-system의 플랫폼 Pod가 노드그룹 이름에 묶여 있던 상태를 재현합니다.
 
-### kind 클러스터에서 실제로 확인
+#### kind 클러스터에서 실제로 확인
 
 ```bash
 ./demo/run-demo.sh
@@ -106,7 +118,7 @@ ip 모드 NLB Service `order-api`는 나오지 않아야 합니다. kind 데모 
 
 kind에는 AL2 노드와 aws-node가 없어서, `al2-node`와 `vpc-cni-env`는 `tests/fixtures/snapshot`으로 검증합니다. kind 기본 컴포넌트(예: `local-path-storage`의 provisioner)도 replica 1개로 나올 수 있는데, 이는 정상적인 결과입니다.
 
-## drain 검증 (`rehearsal/`)
+### drain 검증 (`rehearsal/`)
 
 점검이 예측한 문제가 실제 drain에서도 일어나는지 kind에서 확인합니다. **클러스터를 실제로 바꾸는 코드라 kind에서만 실행합니다.** 현재 컨텍스트와 `--context`가 모두 `kind-`로 시작하지 않으면 다른 명령을 하나도 실행하지 않고 종료 코드 2로 멈추고, 이후 모든 kubectl 호출에 확인한 컨텍스트를 붙입니다.
 
@@ -122,7 +134,7 @@ python3 -m rehearsal drain --node <노드> [--context kind-...] [--timeout 120] 
 
 리포트에는 Pod별 결과(재배치 완료·재배치 실패·PDB에 막힘·컨트롤러 없음·evict 실패·건너뜀), 걸린 시간, 다운타임 가능 여부(evict 시점에 같은 워크로드의 다른 Ready Pod가 없었는지)와 함께, 예측과 실측을 워크로드 단위로 맞춘 표(예측함·발생 / 예측함·발생 안 함 / 예측 못 함·발생)가 들어갑니다. PDB에 막힌 Pod가 있으면 EKS 관리형 노드그룹 업그레이드가 15분 동안 evict하지 못하면 `PodEvictionFailure`로 실패한다는 기준([공식 문서](https://docs.aws.amazon.com/eks/latest/userguide/managed-node-update-behavior.html))을 함께 적습니다.
 
-### 데모
+#### 데모
 
 ```bash
 ./demo/run-drain-demo.sh      # kind 클러스터 preflight-rehearsal (control-plane 1 + worker 2)
@@ -261,6 +273,7 @@ Claude Code 대화에서 "run_preflight로 1.33 업그레이드 사전 점검을
 - **모드 C의 도구 선택은 시나리오에 맞았습니다.** 상태와 Event로 충분한 A·F에서는 추가 조회를 하지 않았고, 로그가 필요한 B에서는 `pods_log`를, 엔드포인트가 필요한 C에서는 Service·Endpoints를 골랐습니다. 5회 한도에 닿은 실행은 없었습니다.
 - **비교 모델(Haiku)은 4/4로 같은 결과를 약 1/17 비용으로 냈습니다.** 다만 시나리오당 1회만 돌렸습니다.
 - 시간에는 `claude -p` 프로세스 시작 시간이 포함됩니다(LLM 호출마다 새 프로세스).
+- **평가 32회 동안 에이전트가 `run_preflight`를 호출하지 않았습니다.** 4개 시나리오는 쿠버네티스 조회만으로 충분했고, `run_preflight`는 연결만 확인한 상태입니다.
 
 ### 한계와 확장
 
